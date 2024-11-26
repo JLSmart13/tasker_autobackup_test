@@ -1,0 +1,384 @@
+{
+    "type": "rules_manager",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true
+    },
+    "layout": {
+        "type": "split_pane",
+        "orientation": "horizontal",
+        "defaultRatio": 0.3
+    },
+    "header": {
+        "title": "Backup Rules",
+        "actions": [
+            {
+                "type": "button",
+                "icon": "add",
+                "label": "New Rule",
+                "action": "createRule"
+            },
+            {
+                "type": "button",
+                "icon": "play_arrow",
+                "label": "Run All",
+                "action": "runAllRules"
+            }
+        ]
+    },
+    "ruleTypes": {
+        "fileType": {
+            "name": "File Type Rule",
+            "icon": "description",
+            "conditions": [
+                {
+                    "type": "select",
+                    "field": "extension",
+                    "label": "File Extension",
+                    "multiple": true,
+                    "options": [
+                        "doc", "docx", "pdf", "txt",
+                        "jpg", "png", "gif",
+                        "mp3", "mp4", "wav",
+                        "zip", "rar"
+                    ]
+                },
+                {
+                    "type": "select",
+                    "field": "mimeType",
+                    "label": "MIME Type",
+                    "multiple": true,
+                    "options": [
+                        "text/*",
+                        "image/*",
+                        "audio/*",
+                        "video/*",
+                        "application/*"
+                    ]
+                }
+            ],
+            "actions": [
+                "setPriority",
+                "setCompression",
+                "setEncryption",
+                "exclude"
+            ]
+        },
+        "location": {
+            "name": "Location Rule",
+            "icon": "folder",
+            "conditions": [
+                {
+                    "type": "path",
+                    "field": "path",
+                    "label": "File Path",
+                    "supports": ["contains", "starts", "ends", "regex"]
+                },
+                {
+                    "type": "select",
+                    "field": "storage",
+                    "label": "Storage Location",
+                    "options": [
+                        "internal",
+                        "external",
+                        "any"
+                    ]
+                }
+            ],
+            "actions": [
+                "include",
+                "exclude",
+                "setPriority",
+                "setDestination"
+            ]
+        },
+        "size": {
+            "name": "Size Rule",
+            "icon": "data_usage",
+            "conditions": [
+                {
+                    "type": "size",
+                    "field": "fileSize",
+                    "label": "File Size",
+                    "operators": ["<", "<=", "=", ">=", ">"],
+                    "unit": ["B", "KB", "MB", "GB"]
+                }
+            ],
+            "actions": [
+                "setCompression",
+                "split",
+                "exclude"
+            ]
+        },
+        "time": {
+            "name": "Time-based Rule",
+            "icon": "schedule",
+            "conditions": [
+                {
+                    "type": "datetime",
+                    "field": "modified",
+                    "label": "Last Modified",
+                    "operators": ["before", "after", "between"]
+                },
+                {
+                    "type": "datetime",
+                    "field": "created",
+                    "label": "Created Date",
+                    "operators": ["before", "after", "between"]
+                }
+            ],
+            "actions": [
+                "archive",
+                "delete",
+                "setPriority"
+            ]
+        },
+        "content": {
+            "name": "Content Rule",
+            "icon": "search",
+            "conditions": [
+                {
+                    "type": "text",
+                    "field": "content",
+                    "label": "Content Contains",
+                    "supports": ["text", "regex", "wildcard"]
+                },
+                {
+                    "type": "select",
+                    "field": "sensitivity",
+                    "label": "Content Sensitivity",
+                    "options": [
+                        "public",
+                        "private",
+                        "confidential"
+                    ]
+                }
+            ],
+            "actions": [
+                "setEncryption",
+                "setPriority",
+                "addTag"
+            ]
+        }
+    },
+    "actions": {
+        "setPriority": {
+            "name": "Set Priority",
+            "icon": "priority_high",
+            "params": {
+                "level": {
+                    "type": "select",
+                    "options": [
+                        "highest",
+                        "high",
+                        "normal",
+                        "low",
+                        "lowest"
+                    ]
+                }
+            }
+        },
+        "setCompression": {
+            "name": "Set Compression",
+            "icon": "compress",
+            "params": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "level": {
+                    "type": "select",
+                    "options": [
+                        "none",
+                        "fast",
+                        "balanced",
+                        "max"
+                    ]
+                }
+            }
+        },
+        "setEncryption": {
+            "name": "Set Encryption",
+            "icon": "lock",
+            "params": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "algorithm": {
+                    "type": "select",
+                    "options": [
+                        "AES-256",
+                        "AES-128"
+                    ]
+                }
+            }
+        },
+        "exclude": {
+            "name": "Exclude from Backup",
+            "icon": "block",
+            "params": {
+                "reason": {
+                    "type": "text",
+                    "required": false
+                }
+            }
+        }
+    },
+    "ruleEditor": {
+        "type": "visual_editor",
+        "sections": {
+            "conditions": {
+                "title": "Conditions",
+                "type": "condition_builder",
+                "operators": [
+                    "AND",
+                    "OR",
+                    "NOT"
+                ],
+                "nesting": true
+            },
+            "actions": {
+                "title": "Actions",
+                "type": "action_list",
+                "multiple": true
+            },
+            "schedule": {
+                "title": "Schedule",
+                "type": "schedule_picker",
+                "optional": true
+            }
+        },
+        "validation": {
+            "immediate": true,
+            "showErrors": true
+        },
+        "preview": {
+            "enabled": true,
+            "maxItems": 5
+        }
+    },
+    "ruleList": {
+        "type": "sortable_list",
+        "groupBy": "type",
+        "columns": [
+            {
+                "field": "name",
+                "label": "Rule Name",
+                "primary": true
+            },
+            {
+                "field": "type",
+                "label": "Type",
+                "format": "icon"
+            },
+            {
+                "field": "status",
+                "label": "Status",
+                "format": "chip"
+            },
+            {
+                "field": "lastRun",
+                "label": "Last Run",
+                "format": "relative_time"
+            }
+        ],
+        "actions": [
+            {
+                "icon": "edit",
+                "label": "Edit",
+                "action": "editRule"
+            },
+            {
+                "icon": "play_arrow",
+                "label": "Run",
+                "action": "runRule"
+            },
+            {
+                "icon": "delete",
+                "label": "Delete",
+                "action": "deleteRule",
+                "confirm": true
+            }
+        ]
+    },
+    "monitoring": {
+        "enabled": true,
+        "metrics": [
+            {
+                "type": "execution_time",
+                "threshold": 5000
+            },
+            {
+                "type": "affected_files",
+                "threshold": 1000
+            },
+            {
+                "type": "error_rate",
+                "threshold": 0.1
+            }
+        ]
+    },
+    "templates": {
+        "predefined": [
+            {
+                "name": "Documents Backup",
+                "type": "fileType",
+                "conditions": {
+                    "extension": ["doc", "docx", "pdf", "txt"]
+                },
+                "actions": [
+                    {
+                        "type": "setPriority",
+                        "params": {
+                            "level": "high"
+                        }
+                    },
+                    {
+                        "type": "setCompression",
+                        "params": {
+                            "enabled": true,
+                            "level": "balanced"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Media Files",
+                "type": "fileType",
+                "conditions": {
+                    "mimeType": ["image/*", "video/*"]
+                },
+                "actions": [
+                    {
+                        "type": "setPriority",
+                        "params": {
+                            "level": "normal"
+                        }
+                    },
+                    {
+                        "type": "setCompression",
+                        "params": {
+                            "enabled": true,
+                            "level": "fast"
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    "importExport": {
+        "formats": [
+            {
+                "type": "json",
+                "name": "JSON",
+                "extension": ".json"
+            },
+            {
+                "type": "yaml",
+                "name": "YAML",
+                "extension": ".yaml"
+            }
+        ],
+        "validation": true,
+        "backup": true
+    }
+}

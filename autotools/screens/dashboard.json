@@ -1,0 +1,318 @@
+{
+    "type": "dashboard",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true,
+        "elevation": {
+            "cards": 2,
+            "header": 3,
+            "fab": 6
+        }
+    },
+    "layout": {
+        "type": "responsive_grid",
+        "columns": {
+            "xs": 1,
+            "sm": 2,
+            "md": 3,
+            "lg": 4
+        },
+        "spacing": 16
+    },
+    "header": {
+        "type": "sticky",
+        "height": 64,
+        "title": "Backup Dashboard",
+        "actions": [
+            {
+                "type": "button",
+                "icon": "settings",
+                "action": "openSettings"
+            },
+            {
+                "type": "menu",
+                "icon": "more_vert",
+                "items": [
+                    {
+                        "label": "Refresh",
+                        "icon": "refresh",
+                        "action": "refreshDashboard"
+                    },
+                    {
+                        "label": "View Logs",
+                        "icon": "description",
+                        "action": "openLogs"
+                    }
+                ]
+            }
+        ]
+    },
+    "sections": [
+        {
+            "type": "status_overview",
+            "title": "Backup Status",
+            "span": { "xs": 1, "md": 2 },
+            "height": "160px",
+            "content": {
+                "type": "status_card",
+                "data": {
+                    "source": "backupEngine.getStatus()",
+                    "refresh": 5000
+                },
+                "display": {
+                    "mainMetric": {
+                        "label": "Overall Progress",
+                        "value": "%progress%",
+                        "type": "progress"
+                    },
+                    "subMetrics": [
+                        {
+                            "label": "Files Remaining",
+                            "value": "%remaining_files%",
+                            "icon": "folder"
+                        },
+                        {
+                            "label": "Upload Speed",
+                            "value": "%upload_speed%",
+                            "icon": "upload"
+                        },
+                        {
+                            "label": "Time Remaining",
+                            "value": "%eta%",
+                            "icon": "schedule"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "type": "quick_actions",
+            "title": "Quick Actions",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "action_grid",
+                "columns": 2,
+                "actions": [
+                    {
+                        "label": "Start Backup",
+                        "icon": "backup",
+                        "action": "startBackup",
+                        "color": "primary",
+                        "enabledWhen": "!%BACKUP_RUNNING%"
+                    },
+                    {
+                        "label": "Pause",
+                        "icon": "pause",
+                        "action": "pauseBackup",
+                        "color": "secondary",
+                        "enabledWhen": "%BACKUP_RUNNING%"
+                    },
+                    {
+                        "label": "Schedule",
+                        "icon": "schedule",
+                        "action": "openSchedule",
+                        "color": "default"
+                    },
+                    {
+                        "label": "Files",
+                        "icon": "folder",
+                        "action": "openFiles",
+                        "color": "default"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "performance_metrics",
+            "title": "System Performance",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "metrics_grid",
+                "refresh": 2000,
+                "metrics": [
+                    {
+                        "type": "gauge",
+                        "label": "CPU Usage",
+                        "value": "%cpu_usage%",
+                        "thresholds": {
+                            "warning": 70,
+                            "critical": 90
+                        }
+                    },
+                    {
+                        "type": "gauge",
+                        "label": "Memory",
+                        "value": "%memory_usage%",
+                        "thresholds": {
+                            "warning": 75,
+                            "critical": 90
+                        }
+                    },
+                    {
+                        "type": "gauge",
+                        "label": "Storage",
+                        "value": "%storage_usage%",
+                        "thresholds": {
+                            "warning": 80,
+                            "critical": 95
+                        }
+                    },
+                    {
+                        "type": "gauge",
+                        "label": "Network",
+                        "value": "%network_quality%",
+                        "thresholds": {
+                            "warning": 40,
+                            "critical": 20
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "recent_activity",
+            "title": "Recent Activity",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "activity_list",
+                "maxItems": 5,
+                "refresh": 10000,
+                "itemTemplate": {
+                    "type": "activity_item",
+                    "fields": [
+                        {
+                            "type": "icon",
+                            "field": "type",
+                            "mappings": {
+                                "backup": "backup",
+                                "error": "error",
+                                "completed": "check_circle",
+                                "paused": "pause_circle"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "field": "message",
+                            "style": "primary"
+                        },
+                        {
+                            "type": "text",
+                            "field": "timestamp",
+                            "style": "secondary",
+                            "format": "relative"
+                        }
+                    ],
+                    "actions": {
+                        "click": "viewDetails",
+                        "swipe": "dismiss"
+                    }
+                }
+            }
+        },
+        {
+            "type": "backup_stats",
+            "title": "Backup Statistics",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "chart_container",
+                "charts": [
+                    {
+                        "type": "line_chart",
+                        "label": "Backup Speed",
+                        "data": {
+                            "source": "getSpeedHistory()",
+                            "refresh": 30000
+                        },
+                        "options": {
+                            "xAxis": {
+                                "type": "time",
+                                "timeUnit": "minute"
+                            },
+                            "yAxis": {
+                                "label": "MB/s",
+                                "min": 0
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "current_file",
+            "title": "Current File",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "file_card",
+                "data": {
+                    "source": "getCurrentFile()",
+                    "refresh": 1000
+                },
+                "display": {
+                    "fields": [
+                        {
+                            "label": "Name",
+                            "value": "%filename%",
+                            "style": "title"
+                        },
+                        {
+                            "label": "Size",
+                            "value": "%filesize%",
+                            "style": "subtitle"
+                        },
+                        {
+                            "label": "Progress",
+                            "value": "%progress%",
+                            "type": "progress"
+                        },
+                        {
+                            "label": "Speed",
+                            "value": "%speed%",
+                            "style": "caption"
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "fab": {
+        "type": "speed_dial",
+        "icon": "add",
+        "actions": [
+            {
+                "label": "New Backup",
+                "icon": "backup",
+                "action": "startNewBackup"
+            },
+            {
+                "label": "Quick Scan",
+                "icon": "search",
+                "action": "scanFiles"
+            },
+            {
+                "label": "Settings",
+                "icon": "settings",
+                "action": "openSettings"
+            }
+        ]
+    },
+    "notifications": {
+        "position": "bottom",
+        "duration": 4000,
+        "maxStacked": 3
+    },
+    "refreshControl": {
+        "enabled": true,
+        "color": "primary"
+    },
+    "errorBoundary": {
+        "fallback": {
+            "type": "error_card",
+            "title": "Dashboard Error",
+            "message": "Failed to load dashboard components",
+            "action": {
+                "label": "Retry",
+                "handler": "refreshDashboard"
+            }
+        }
+    }
+}

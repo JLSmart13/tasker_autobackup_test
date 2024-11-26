@@ -1,0 +1,276 @@
+{
+    "type": "schedule_optimizer_screen",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true,
+        "elevation": {
+            "toolbar": 3,
+            "cards": 1,
+            "dialog": 8
+        }
+    },
+    "layout": {
+        "type": "split_view",
+        "defaultView": "calendar",
+        "sidebarWidth": 320
+    },
+    "header": {
+        "type": "navigation_header",
+        "title": "Schedule Optimizer",
+        "subtitle": "Optimize backup schedules",
+        "actions": [
+            {
+                "type": "button",
+                "icon": "optimize",
+                "label": "Run Optimization",
+                "action": "runOptimization"
+            },
+            {
+                "type": "button",
+                "icon": "save",
+                "label": "Save Schedule",
+                "action": "saveSchedule"
+            }
+        ]
+    },
+    "sections": [
+        {
+            "type": "schedule_calendar",
+            "title": "Backup Schedule",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "calendar",
+                "options": {
+                    "views": ["month", "week", "day"],
+                    "defaultView": "week",
+                    "firstDay": 1,
+                    "workingHours": {
+                        "start": "00:00",
+                        "end": "23:59"
+                    }
+                },
+                "events": {
+                    "types": [
+                        {
+                            "id": "backup",
+                            "name": "Full Backup",
+                            "color": "primary"
+                        },
+                        {
+                            "id": "incremental",
+                            "name": "Incremental",
+                            "color": "secondary"
+                        },
+                        {
+                            "id": "priority",
+                            "name": "Priority Files",
+                            "color": "error"
+                        }
+                    ],
+                    "interactions": {
+                        "create": true,
+                        "edit": true,
+                        "delete": true,
+                        "resize": true,
+                        "drag": true
+                    }
+                }
+            }
+        },
+        {
+            "type": "optimization_panel",
+            "title": "Optimization Settings",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "optimization_controls",
+                "factors": [
+                    {
+                        "label": "Network Quality",
+                        "field": "network_weight",
+                        "type": "slider",
+                        "min": 0,
+                        "max": 1,
+                        "step": 0.1,
+                        "default": 0.4
+                    },
+                    {
+                        "label": "Battery Status",
+                        "field": "battery_weight",
+                        "type": "slider",
+                        "min": 0,
+                        "max": 1,
+                        "step": 0.1,
+                        "default": 0.3
+                    },
+                    {
+                        "label": "System Load",
+                        "field": "system_weight",
+                        "type": "slider",
+                        "min": 0,
+                        "max": 1,
+                        "step": 0.1,
+                        "default": 0.3
+                    }
+                ]
+            }
+        },
+        {
+            "type": "schedule_analysis",
+            "title": "Performance Analysis",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "analysis_charts",
+                "charts": [
+                    {
+                        "type": "line",
+                        "title": "Backup Success Rate",
+                        "data": {
+                            "source": "getSuccessRates()",
+                            "refresh": 3600000
+                        },
+                        "options": {
+                            "xAxis": {
+                                "type": "time",
+                                "unit": "day"
+                            },
+                            "yAxis": {
+                                "type": "percentage",
+                                "min": 0,
+                                "max": 100
+                            }
+                        }
+                    },
+                    {
+                        "type": "heatmap",
+                        "title": "Optimal Time Slots",
+                        "data": {
+                            "source": "getOptimalTimes()",
+                            "refresh": 3600000
+                        },
+                        "options": {
+                            "xAxis": {
+                                "type": "hour",
+                                "format": "24h"
+                            },
+                            "yAxis": {
+                                "type": "weekday",
+                                "format": "short"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "recommendations",
+            "title": "Schedule Recommendations",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "recommendation_list",
+                "data": {
+                    "source": "getRecommendations()",
+                    "refresh": 3600000
+                },
+                "itemTemplate": {
+                    "type": "recommendation_card",
+                    "fields": [
+                        {
+                            "type": "icon",
+                            "field": "type",
+                            "mappings": {
+                                "reschedule": "schedule",
+                                "optimize": "tune",
+                                "merge": "merge"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "field": "description",
+                            "style": "body"
+                        },
+                        {
+                            "type": "chip",
+                            "field": "impact",
+                            "colors": {
+                                "high": "success",
+                                "medium": "warning",
+                                "low": "info"
+                            }
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "label": "Apply",
+                            "action": "applyRecommendation",
+                            "primary": true
+                        },
+                        {
+                            "label": "Dismiss",
+                            "action": "dismissRecommendation"
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "fab": {
+        "type": "speed_dial",
+        "icon": "schedule",
+        "actions": [
+            {
+                "label": "New Schedule",
+                "icon": "add",
+                "action": "newSchedule"
+            },
+            {
+                "label": "Optimize All",
+                "icon": "auto_fix_high",
+                "action": "optimizeAll"
+            },
+            {
+                "label": "Clear All",
+                "icon": "clear_all",
+                "action": "clearSchedules"
+            }
+        ]
+    },
+    "dialogs": {
+        "optimization": {
+            "type": "dialog",
+            "title": "Optimization Settings",
+            "content": {
+                "type": "settings_form",
+                "fields": [
+                    {
+                        "label": "Optimization Strategy",
+                        "type": "select",
+                        "options": [
+                            "balanced",
+                            "aggressive",
+                            "conservative"
+                        ]
+                    },
+                    {
+                        "label": "Time Window",
+                        "type": "time_range"
+                    },
+                    {
+                        "label": "Resource Limits",
+                        "type": "resource_limits"
+                    }
+                ]
+            },
+            "actions": [
+                {
+                    "label": "Apply",
+                    "action": "applySettings",
+                    "primary": true
+                },
+                {
+                    "label": "Cancel",
+                    "action": "closeDialog"
+                }
+            ]
+        }
+    }
+}

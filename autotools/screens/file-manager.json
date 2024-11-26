@@ -1,0 +1,399 @@
+{
+    "type": "file_manager",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true,
+        "elevation": {
+            "toolbar": 3,
+            "cards": 1,
+            "contextMenu": 8
+        }
+    },
+    "layout": {
+        "type": "adaptive",
+        "modes": {
+            "mobile": {
+                "viewType": "list",
+                "sidebarEnabled": false
+            },
+            "tablet": {
+                "viewType": "grid",
+                "sidebarEnabled": true,
+                "gridColumns": 2
+            },
+            "desktop": {
+                "viewType": "grid",
+                "sidebarEnabled": true,
+                "gridColumns": 4
+            }
+        }
+    },
+    "toolbar": {
+        "type": "dynamic",
+        "primary": {
+            "title": "Backup Files",
+            "subtitle": "%selected_count% items selected",
+            "showSubtitleWhen": "%selected_count% > 0",
+            "actions": [
+                {
+                    "type": "button",
+                    "icon": "search",
+                    "action": "toggleSearch"
+                },
+                {
+                    "type": "button",
+                    "icon": "filter_list",
+                    "action": "showFilters"
+                },
+                {
+                    "type": "menu",
+                    "icon": "more_vert",
+                    "items": [
+                        {
+                            "label": "Select All",
+                            "icon": "select_all",
+                            "action": "selectAll"
+                        },
+                        {
+                            "label": "Sort By",
+                            "icon": "sort",
+                            "submenu": [
+                                {
+                                    "label": "Name",
+                                    "action": "sortByName"
+                                },
+                                {
+                                    "label": "Date",
+                                    "action": "sortByDate"
+                                },
+                                {
+                                    "label": "Size",
+                                    "action": "sortBySize"
+                                },
+                                {
+                                    "label": "Type",
+                                    "action": "sortByType"
+                                }
+                            ]
+                        },
+                        {
+                            "label": "View",
+                            "icon": "view_list",
+                            "submenu": [
+                                {
+                                    "label": "List",
+                                    "action": "setViewList"
+                                },
+                                {
+                                    "label": "Grid",
+                                    "action": "setViewGrid"
+                                },
+                                {
+                                    "label": "Details",
+                                    "action": "setViewDetails"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "selection": {
+            "actions": [
+                {
+                    "type": "button",
+                    "icon": "backup",
+                    "label": "Backup",
+                    "action": "backupSelected"
+                },
+                {
+                    "type": "button",
+                    "icon": "priority_high",
+                    "label": "Priority",
+                    "action": "setPriority"
+                },
+                {
+                    "type": "button",
+                    "icon": "block",
+                    "label": "Exclude",
+                    "action": "excludeSelected"
+                }
+            ]
+        }
+    },
+    "search": {
+        "type": "advanced",
+        "features": {
+            "instantResults": true,
+            "filters": true,
+            "suggestions": true,
+            "recentSearches": true
+        },
+        "filters": {
+            "type": {
+                "label": "File Type",
+                "options": [
+                    "Documents",
+                    "Images",
+                    "Videos",
+                    "Audio",
+                    "Archives"
+                ]
+            },
+            "date": {
+                "label": "Modified",
+                "type": "date_range"
+            },
+            "size": {
+                "label": "Size",
+                "type": "range",
+                "unit": "MB"
+            },
+            "status": {
+                "label": "Backup Status",
+                "options": [
+                    "Pending",
+                    "In Progress",
+                    "Completed",
+                    "Failed"
+                ]
+            }
+        }
+    },
+    "sidebar": {
+        "type": "navigation",
+        "sections": [
+            {
+                "type": "quick_access",
+                "items": [
+                    {
+                        "label": "Recent",
+                        "icon": "history",
+                        "action": "showRecent"
+                    },
+                    {
+                        "label": "Pending",
+                        "icon": "pending",
+                        "action": "showPending"
+                    },
+                    {
+                        "label": "Completed",
+                        "icon": "check_circle",
+                        "action": "showCompleted"
+                    }
+                ]
+            },
+            {
+                "type": "categories",
+                "items": [
+                    {
+                        "label": "Documents",
+                        "icon": "description",
+                        "filter": "type:document"
+                    },
+                    {
+                        "label": "Images",
+                        "icon": "image",
+                        "filter": "type:image"
+                    },
+                    {
+                        "label": "Videos",
+                        "icon": "videocam",
+                        "filter": "type:video"
+                    },
+                    {
+                        "label": "Audio",
+                        "icon": "audiotrack",
+                        "filter": "type:audio"
+                    }
+                ]
+            },
+            {
+                "type": "storage",
+                "title": "Storage",
+                "items": [
+                    {
+                        "label": "Internal",
+                        "icon": "smartphone",
+                        "path": "/storage/emulated/0"
+                    },
+                    {
+                        "label": "SD Card",
+                        "icon": "sd_card",
+                        "path": "/storage/sdcard1",
+                        "visibleWhen": "hasSDCard()"
+                    }
+                ]
+            }
+        ]
+    },
+    "fileList": {
+        "type": "virtual_list",
+        "itemHeight": 72,
+        "itemTemplate": {
+            "type": "file_item",
+            "layout": {
+                "list": {
+                    "icon": {
+                        "size": 40,
+                        "showThumbnail": true
+                    },
+                    "primary": "name",
+                    "secondary": "size | date",
+                    "trailing": "status"
+                },
+                "grid": {
+                    "icon": {
+                        "size": 80,
+                        "showThumbnail": true
+                    },
+                    "title": "name",
+                    "subtitle": "size"
+                }
+            },
+            "interactions": {
+                "click": "toggleSelect",
+                "longPress": "showContextMenu",
+                "swipe": {
+                    "left": "exclude",
+                    "right": "prioritize"
+                }
+            },
+            "contextMenu": [
+                {
+                    "label": "Backup Now",
+                    "icon": "backup",
+                    "action": "backupFile"
+                },
+                {
+                    "label": "Set Priority",
+                    "icon": "priority_high",
+                    "submenu": [
+                        {
+                            "label": "High",
+                            "action": "setPriorityHigh"
+                        },
+                        {
+                            "label": "Normal",
+                            "action": "setPriorityNormal"
+                        },
+                        {
+                            "label": "Low",
+                            "action": "setPriorityLow"
+                        }
+                    ]
+                },
+                {
+                    "label": "Exclude",
+                    "icon": "block",
+                    "action": "excludeFile"
+                },
+                {
+                    "label": "Details",
+                    "icon": "info",
+                    "action": "showDetails"
+                }
+            ]
+        }
+    },
+    "details": {
+        "type": "modal",
+        "width": "400px",
+        "sections": [
+            {
+                "type": "header",
+                "fields": [
+                    {
+                        "label": "Name",
+                        "value": "%name%"
+                    },
+                    {
+                        "label": "Type",
+                        "value": "%type%"
+                    },
+                    {
+                        "label": "Size",
+                        "value": "%size%"
+                    }
+                ]
+            },
+            {
+                "type": "backup_status",
+                "fields": [
+                    {
+                        "label": "Status",
+                        "value": "%status%",
+                        "style": "chip"
+                    },
+                    {
+                        "label": "Last Backup",
+                        "value": "%last_backup%"
+                    },
+                    {
+                        "label": "Priority",
+                        "value": "%priority%"
+                    }
+                ]
+            },
+            {
+                "type": "actions",
+                "items": [
+                    {
+                        "label": "Backup Now",
+                        "icon": "backup",
+                        "action": "backupFile",
+                        "primary": true
+                    },
+                    {
+                        "label": "Change Priority",
+                        "icon": "priority_high",
+                        "action": "changePriority"
+                    },
+                    {
+                        "label": "View History",
+                        "icon": "history",
+                        "action": "viewHistory"
+                    }
+                ]
+            }
+        ]
+    },
+    "dragAndDrop": {
+        "enabled": true,
+        "dropZones": [
+            {
+                "id": "priority-high",
+                "label": "High Priority",
+                "icon": "priority_high",
+                "action": "setPriorityHigh"
+            },
+            {
+                "id": "priority-normal",
+                "label": "Normal Priority",
+                "icon": "priority_normal",
+                "action": "setPriorityNormal"
+            },
+            {
+                "id": "exclude",
+                "label": "Exclude",
+                "icon": "block",
+                "action": "excludeFiles"
+            }
+        ]
+    },
+    "errorHandling": {
+        "retry": {
+            "enabled": true,
+            "maxAttempts": 3,
+            "delay": 1000
+        },
+        "fallback": {
+            "type": "error_view",
+            "message": "Unable to load files",
+            "action": {
+                "label": "Retry",
+                "handler": "retryLoading"
+            }
+        }
+    }
+}

@@ -1,0 +1,359 @@
+{
+    "type": "health_monitor",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true
+    },
+    "layout": {
+        "type": "responsive_dashboard",
+        "breakpoints": {
+            "xs": 0,
+            "sm": 600,
+            "md": 960,
+            "lg": 1280
+        }
+    },
+    "header": {
+        "type": "status_header",
+        "data": {
+            "source": "getSystemHealth()",
+            "refresh": 5000
+        },
+        "display": {
+            "status": {
+                "healthy": {
+                    "label": "System Healthy",
+                    "color": "success",
+                    "icon": "check_circle"
+                },
+                "warning": {
+                    "label": "Performance Issues",
+                    "color": "warning",
+                    "icon": "warning"
+                },
+                "critical": {
+                    "label": "System Critical",
+                    "color": "error",
+                    "icon": "error"
+                }
+            }
+        }
+    },
+    "sections": [
+        {
+            "type": "resource_monitor",
+            "title": "System Resources",
+            "span": { "xs": 1, "md": 2 },
+            "metrics": {
+                "cpu": {
+                    "label": "CPU Usage",
+                    "type": "line_chart",
+                    "data": {
+                        "source": "getCPUMetrics()",
+                        "refresh": 1000,
+                        "window": "5m"
+                    },
+                    "thresholds": {
+                        "warning": 70,
+                        "critical": 90
+                    },
+                    "details": [
+                        "user",
+                        "system",
+                        "io_wait",
+                        "idle"
+                    ]
+                },
+                "memory": {
+                    "label": "Memory Usage",
+                    "type": "area_chart",
+                    "data": {
+                        "source": "getMemoryMetrics()",
+                        "refresh": 1000,
+                        "window": "5m"
+                    },
+                    "thresholds": {
+                        "warning": 75,
+                        "critical": 90
+                    },
+                    "details": [
+                        "used",
+                        "cached",
+                        "available",
+                        "swap"
+                    ]
+                },
+                "disk": {
+                    "label": "Storage Usage",
+                    "type": "donut_chart",
+                    "data": {
+                        "source": "getDiskMetrics()",
+                        "refresh": 60000
+                    },
+                    "thresholds": {
+                        "warning": 80,
+                        "critical": 95
+                    },
+                    "details": [
+                        "used",
+                        "free",
+                        "reserved"
+                    ]
+                }
+            }
+        },
+        {
+            "type": "performance_monitor",
+            "title": "Backup Performance",
+            "span": { "xs": 1, "md": 2 },
+            "metrics": {
+                "throughput": {
+                    "label": "Transfer Rate",
+                    "type": "line_chart",
+                    "data": {
+                        "source": "getThroughputMetrics()",
+                        "refresh": 1000,
+                        "window": "15m"
+                    },
+                    "thresholds": {
+                        "warning": "below:1MB/s",
+                        "critical": "below:500KB/s"
+                    }
+                },
+                "queue": {
+                    "label": "Queue Status",
+                    "type": "stacked_bar",
+                    "data": {
+                        "source": "getQueueMetrics()",
+                        "refresh": 5000
+                    },
+                    "categories": [
+                        "pending",
+                        "processing",
+                        "completed",
+                        "failed"
+                    ]
+                }
+            }
+        },
+        {
+            "type": "error_monitor",
+            "title": "Error Tracking",
+            "span": { "xs": 1, "md": 1 },
+            "display": {
+                "type": "timeline",
+                "data": {
+                    "source": "getErrorHistory()",
+                    "refresh": 10000,
+                    "window": "1h"
+                },
+                "severity": {
+                    "low": {
+                        "color": "info",
+                        "icon": "info"
+                    },
+                    "medium": {
+                        "color": "warning",
+                        "icon": "warning"
+                    },
+                    "high": {
+                        "color": "error",
+                        "icon": "error"
+                    }
+                }
+            }
+        },
+        {
+            "type": "diagnostics",
+            "title": "System Diagnostics",
+            "span": { "xs": 1, "md": 1 },
+            "tests": [
+                {
+                    "name": "Storage Access",
+                    "type": "io_test",
+                    "interval": 300,
+                    "params": {
+                        "writeSize": "1MB",
+                        "readSize": "1MB",
+                        "iterations": 5
+                    }
+                },
+                {
+                    "name": "Network Connectivity",
+                    "type": "network_test",
+                    "interval": 60,
+                    "params": {
+                        "timeout": 5000,
+                        "targets": [
+                            "backup.server",
+                            "8.8.8.8"
+                        ]
+                    }
+                },
+                {
+                    "name": "Memory Allocation",
+                    "type": "memory_test",
+                    "interval": 600,
+                    "params": {
+                        "size": "100MB",
+                        "duration": 5
+                    }
+                }
+            ]
+        }
+    ],
+    "alerts": {
+        "enabled": true,
+        "channels": {
+            "notification": {
+                "enabled": true,
+                "minSeverity": "warning"
+            },
+            "email": {
+                "enabled": false,
+                "minSeverity": "critical"
+            },
+            "log": {
+                "enabled": true,
+                "minSeverity": "info"
+            }
+        },
+        "rules": [
+            {
+                "metric": "cpu_usage",
+                "condition": ">90%",
+                "duration": "5m",
+                "severity": "critical",
+                "action": "notifySystemStress"
+            },
+            {
+                "metric": "memory_available",
+                "condition": "<500MB",
+                "duration": "2m",
+                "severity": "warning",
+                "action": "notifyLowMemory"
+            },
+            {
+                "metric": "storage_free",
+                "condition": "<1GB",
+                "severity": "critical",
+                "action": "notifyStorageCritical"
+            },
+            {
+                "metric": "error_rate",
+                "condition": ">10%",
+                "duration": "15m",
+                "severity": "warning",
+                "action": "notifyHighErrorRate"
+            }
+        ]
+    },
+    "optimization": {
+        "autoOptimize": true,
+        "triggers": [
+            {
+                "condition": "cpu_usage > 80%",
+                "action": "reduceConcurrency"
+            },
+            {
+                "condition": "memory_available < 1GB",
+                "action": "clearCache"
+            },
+            {
+                "condition": "error_rate > 5%",
+                "action": "adjustChunkSize"
+            }
+        ],
+        "limits": {
+            "cpu": {
+                "max": 90,
+                "target": 70
+            },
+            "memory": {
+                "max": 85,
+                "target": 60
+            },
+            "storage": {
+                "reserve": "2GB"
+            }
+        }
+    },
+    "reporting": {
+        "enabled": true,
+        "interval": "1h",
+        "retention": "7d",
+        "metrics": [
+            "resource_usage",
+            "performance_stats",
+            "error_counts",
+            "optimization_events"
+        ],
+        "formats": [
+            {
+                "type": "json",
+                "compression": true
+            },
+            {
+                "type": "csv",
+                "metrics": ["basic"]
+            }
+        ]
+    },
+    "maintenance": {
+        "autoRepair": true,
+        "schedule": {
+            "cleanup": "0 0 * * *",
+            "optimization": "0 4 * * *",
+            "healthCheck": "0 */6 * * *"
+        },
+        "tasks": [
+            {
+                "name": "Cache Cleanup",
+                "type": "cleanup",
+                "params": {
+                    "older_than": "7d",
+                    "min_size": "100MB"
+                }
+            },
+            {
+                "name": "Database Optimization",
+                "type": "optimize_db",
+                "params": {
+                    "vacuum": true,
+                    "reindex": true
+                }
+            },
+            {
+                "name": "Log Rotation",
+                "type": "rotate_logs",
+                "params": {
+                    "max_size": "100MB",
+                    "keep": 5
+                }
+            }
+        ]
+    },
+    "diagnostics": {
+        "logging": {
+            "level": "info",
+            "categories": [
+                "system",
+                "performance",
+                "errors",
+                "optimization"
+            ],
+            "rotation": {
+                "size": "50MB",
+                "keep": 10
+            }
+        },
+        "tracing": {
+            "enabled": false,
+            "sampling": 0.1
+        },
+        "profiling": {
+            "enabled": false,
+            "interval": 300
+        }
+    }
+}

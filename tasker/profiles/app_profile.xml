@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TaskerData>
+    <Profile>
+        <id>102</id>
+        <name>App-Specific Backup Behavior</name>
+        <state>true</state>
+
+        <!-- Application Categories -->
+        <ApplicationProfiles>
+            <!-- Gaming Apps -->
+            <Category name="Gaming">
+                <PackagePatterns>
+                    <pattern>com.*.games</pattern>
+                    <pattern>com.unity.*</pattern>
+                    <pattern>com.epicgames.*</pattern>
+                    <pattern>com.supercell.*</pattern>
+                </PackagePatterns>
+                <Behavior>
+                    <backupAction>pause</backupAction>
+                    <priority>lowest</priority>
+                    <resumeDelay>300</resumeDelay>
+                    <notification>false</notification>
+                    <resourceLimit>
+                        <cpu>10</cpu>
+                        <memory>5</memory>
+                        <network>5</network>
+                    </resourceLimit>
+                </Behavior>
+            </Category>
+
+            <!-- Streaming Apps -->
+            <Category name="Streaming">
+                <PackagePatterns>
+                    <pattern>com.netflix.*</pattern>
+                    <pattern>com.spotify.*</pattern>
+                    <pattern>com.youtube.*</pattern>
+                    <pattern>tv.twitch.*</pattern>
+                </PackagePatterns>
+                <Behavior>
+                    <backupAction>throttle</backupAction>
+                    <priority>low</priority>
+                    <bandwidth>
+                        <limit>1MB</limit>
+                        <adaptive>true</adaptive>
+                    </bandwidth>
+                    <resourceLimit>
+                        <cpu>20</cpu>
+                        <memory>15</memory>
+                        <network>20</network>
+                    </resourceLimit>
+                </Behavior>
+            </Category>
+
+            <!-- Productivity Apps -->
+            <Category name="Productivity">
+                <PackagePatterns>
+                    <pattern>com.microsoft.*</pattern>
+                    <pattern>com.google.android.docs</pattern>
+                    <pattern>com.adobe.*</pattern>
+                    <pattern>com.dropbox.*</pattern>
+                </PackagePatterns>
+                <Behavior>
+                    <backupAction>priority</backupAction>
+                    <priority>high</priority>
+                    <instantBackup>true</instantBackup>
+                    <versionControl>true</versionControl>
+                    <fileTypes>
+                        <type>document</type>
+                        <type>spreadsheet</type>
+                        <type>presentation</type>
+                    </fileTypes>
+                    <resourceLimit>
+                        <cpu>40</cpu>
+                        <memory>30</memory>
+                        <network>40</network>
+                    </resourceLimit>
+                </Behavior>
+            </Category>
+
+            <!-- Camera/Media Apps -->
+            <Category name="Media">
+                <PackagePatterns>
+                    <pattern>com.android.camera</pattern>
+                    <pattern>com.*.camera</pattern>
+                    <pattern>com.*.gallery</pattern>
+                </PackagePatterns>
+                <Behavior>
+                    <backupAction>immediate</backupAction>
+                    <priority>highest</priority>
+                    <compression>
+                        <enabled>true</enabled>
+                        <quality>high</quality>
+                        <threshold>10MB</threshold>
+                    </compression>
+                    <fileTypes>
+                        <type>image</type>
+                        <type>video</type>
+                    </fileTypes>
+                    <resourceLimit>
+                        <cpu>50</cpu>
+                        <memory>40</memory>
+                        <network>50</network>
+                    </resourceLimit>
+                </Behavior>
+            </Category>
+
+            <!-- Communication Apps -->
+            <Category name="Communication">
+                <PackagePatterns>
+                    <pattern>com.whatsapp</pattern>
+                    <pattern>com.telegram</pattern>
+                    <pattern>com.*.messenger</pattern>
+                </PackagePatterns>
+                <Behavior>
+                    <backupAction>background</backupAction>
+                    <priority>medium</priority>
+                    <mediaHandling>
+                        <images>immediate</images>
+                        <videos>delayed</videos>
+                        <audio>delayed</audio>
+                    </mediaHandling>
+                    <resourceLimit>
+                        <cpu>30</cpu>
+                        <memory>25</memory>
+                        <network>30</network>
+                    </resourceLimit>
+                </Behavior>
+            </Category>
+        </ApplicationProfiles>
+
+        <!-- Event Handling -->
+        <Events>
+            <!-- App Launch Events -->
+            <AppLaunch>
+                <cooldown>5</cooldown>
+                <Task>
+                    <id>401</id>
+                    <name>AdjustBackupBehavior</name>
+                    <priority>10</priority>
+                </Task>
+            </AppLaunch>
+
+            <!-- App Exit Events -->
+            <AppExit>
+                <delay>30</delay>
+                <Task>
+                    <id>402</id>
+                    <name>RestoreBackupBehavior</name>
+                    <priority>5</priority>
+                </Task>
+            </AppExit>
+
+            <!-- File Change Events -->
+            <FileChange>
+                <monitor>true</monitor>
+                <paths>
+                    <path>%EXTERNAL_STORAGE/Documents</path>
+                    <path>%EXTERNAL_STORAGE/Pictures</path>
+                    <path>%EXTERNAL_STORAGE/Movies</path>
+                </paths>
+                <Task>
+                    <id>403</id>
+                    <name>HandleFileChange</name>
+                    <priority>7</priority>
+                </Task>
+            </FileChange>
+        </Events>
+
+        <!-- Resource Management -->
+        <ResourceManagement>
+            <Monitoring>
+                <interval>5</interval>
+                <metrics>
+                    <cpu>true</cpu>
+                    <memory>true</memory>
+                    <network>true</network>
+                    <storage>true</storage>
+                </metrics>
+            </Monitoring>
+
+            <Thresholds>
+                <System>
+                    <cpu>80</cpu>
+                    <memory>75</memory>
+                    <storage>90</storage>
+                </System>
+                <Backup>
+                    <cpu>40</cpu>
+                    <memory>30</memory>
+                    <network>50</network>
+                </Backup>
+            </Thresholds>
+
+            <Actions>
+                <HighLoad>
+                    <Task>
+                        <id>404</id>
+                        <name>ReduceBackupLoad</name>
+                        <priority>8</priority>
+                    </Task>
+                </HighLoad>
+                <LowResources>
+                    <Task>
+                        <id>405</id>
+                        <name>PauseBackup</name>
+                        <priority>9</priority>
+                    </Task>
+                </LowResources>
+            </Actions>
+        </ResourceManagement>
+
+        <!-- Conflict Resolution -->
+        <ConflictResolution>
+            <PriorityOrder>
+                <category>Productivity</category>
+                <category>Media</category>
+                <category>Communication</category>
+                <category>Streaming</category>
+                <category>Gaming</category>
+            </PriorityOrder>
+
+            <Resources>
+                <allocation>
+                    <rule>
+                        <condition>%RUNNING_APP_CATEGORY eq Gaming</condition>
+                        <limit>minimal</limit>
+                    </rule>
+                    <rule>
+                        <condition>%RUNNING_APP_CATEGORY eq Productivity</condition>
+                        <limit>optimal</limit>
+                    </rule>
+                </allocation>
+            </Resources>
+        </ConflictResolution>
+
+        <!-- Logging -->
+        <Logging>
+            <enabled>true</enabled>
+            <level>info</level>
+            <events>
+                <appLaunch>true</appLaunch>
+                <resourceUsage>true</resourceUsage>
+                <backupAdjustments>true</backupAdjustments>
+            </events>
+            <retention>7</retention>
+        </Logging>
+
+        <!-- Notifications -->
+        <Notifications>
+            <AppConflicts>
+                <enabled>true</enabled>
+                <priority>normal</priority>
+                <actions>
+                    <action>pause</action>
+                    <action>continue</action>
+                    <action>adjust</action>
+                </actions>
+            </AppConflicts>
+            <ResourceWarnings>
+                <enabled>true</enabled>
+                <priority>high</priority>
+                <threshold>80</threshold>
+            </ResourceWarnings>
+        </Notifications>
+    </Profile>
+</TaskerData>

@@ -1,0 +1,295 @@
+{
+    "type": "schedule_manager",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true
+    },
+    "layout": {
+        "type": "split_view",
+        "defaultView": "calendar",
+        "sidebarWidth": 320
+    },
+    "header": {
+        "type": "navigation_header",
+        "title": "Backup Schedule",
+        "views": [
+            {
+                "id": "calendar",
+                "label": "Calendar",
+                "icon": "calendar_today"
+            },
+            {
+                "id": "timeline",
+                "label": "Timeline",
+                "icon": "timeline"
+            },
+            {
+                "id": "list",
+                "label": "List",
+                "icon": "list"
+            }
+        ]
+    },
+    "calendar": {
+        "type": "scheduler",
+        "options": {
+            "views": {
+                "month": {
+                    "enabled": true,
+                    "default": true
+                },
+                "week": {
+                    "enabled": true,
+                    "showWeekends": true,
+                    "workingHours": {
+                        "start": "00:00",
+                        "end": "23:59"
+                    }
+                },
+                "day": {
+                    "enabled": true,
+                    "timeslots": 24
+                }
+            },
+            "events": {
+                "types": [
+                    {
+                        "id": "full_backup",
+                        "label": "Full Backup",
+                        "color": "primary",
+                        "icon": "backup"
+                    },
+                    {
+                        "id": "incremental",
+                        "label": "Incremental",
+                        "color": "secondary",
+                        "icon": "update"
+                    },
+                    {
+                        "id": "priority",
+                        "label": "Priority Files",
+                        "color": "error",
+                        "icon": "priority_high"
+                    }
+                ],
+                "duration": {
+                    "default": 60,
+                    "min": 15,
+                    "max": 240
+                }
+            },
+            "interaction": {
+                "drag": true,
+                "resize": true,
+                "create": true,
+                "delete": true
+            }
+        }
+    },
+    "schedules": {
+        "templates": [
+            {
+                "id": "daily_night",
+                "name": "Nightly Backup",
+                "type": "full_backup",
+                "time": "02:00",
+                "duration": 120,
+                "repeat": {
+                    "frequency": "daily"
+                },
+                "conditions": {
+                    "network": "wifi",
+                    "battery": "charging",
+                    "idle": true
+                }
+            },
+            {
+                "id": "workday_incremental",
+                "name": "Work Hours Backup",
+                "type": "incremental",
+                "time": "*/4 9-17 * * 1-5",
+                "duration": 30,
+                "conditions": {
+                    "network": "any",
+                    "battery": ">50"
+                }
+            },
+            {
+                "id": "weekend_full",
+                "name": "Weekend Full Backup",
+                "type": "full_backup",
+                "time": "12:00",
+                "duration": 180,
+                "repeat": {
+                    "frequency": "weekly",
+                    "days": ["saturday", "sunday"]
+                },
+                "conditions": {
+                    "network": "wifi",
+                    "storage": ">20GB"
+                }
+            }
+        ],
+        "rules": {
+            "priority": [
+                {
+                    "condition": "fileType == 'document'",
+                    "schedule": {
+                        "type": "incremental",
+                        "interval": "1h"
+                    }
+                },
+                {
+                    "condition": "path.startsWith('/Important/')",
+                    "schedule": {
+                        "type": "priority",
+                        "interval": "30m"
+                    }
+                }
+            ],
+            "conflict": {
+                "resolution": "priority",
+                "maxConcurrent": 1,
+                "delay": 300
+            }
+        }
+    },
+    "optimizer": {
+        "enabled": true,
+        "factors": {
+            "network": {
+                "weight": 0.4,
+                "preferences": {
+                    "wifi": 10,
+                    "ethernet": 10,
+                    "mobile": 5
+                }
+            },
+            "battery": {
+                "weight": 0.3,
+                "thresholds": {
+                    "min": 20,
+                    "preferred": 50
+                }
+            },
+            "system": {
+                "weight": 0.3,
+                "metrics": [
+                    "cpu_usage",
+                    "memory_available",
+                    "disk_space"
+                ]
+            }
+        },
+        "learning": {
+            "enabled": true,
+            "metrics": [
+                "completion_time",
+                "failure_rate",
+                "resource_usage"
+            ],
+            "adaptation": {
+                "interval": "7d",
+                "minimum_samples": 10
+            }
+        }
+    },
+    "sidebar": {
+        "sections": [
+            {
+                "type": "upcoming",
+                "title": "Upcoming Backups",
+                "display": {
+                    "count": 5,
+                    "fields": [
+                        "time",
+                        "type",
+                        "estimated_size"
+                    ]
+                }
+            },
+            {
+                "type": "stats",
+                "title": "Schedule Stats",
+                "metrics": [
+                    {
+                        "label": "Success Rate",
+                        "value": "%success_rate%",
+                        "format": "percentage"
+                    },
+                    {
+                        "label": "Average Duration",
+                        "value": "%avg_duration%",
+                        "format": "duration"
+                    },
+                    {
+                        "label": "Total Backups",
+                        "value": "%total_backups%",
+                        "format": "number"
+                    }
+                ]
+            }
+        ]
+    },
+    "notifications": {
+        "scheduleChange": {
+            "enabled": true,
+            "message": "Backup schedule updated",
+            "actions": ["view", "undo"]
+        },
+        "scheduleConflict": {
+            "enabled": true,
+            "message": "Schedule conflict detected",
+            "actions": ["resolve", "ignore"]
+        },
+        "optimizationSuggestion": {
+            "enabled": true,
+            "message": "Schedule optimization available",
+            "actions": ["apply", "dismiss"]
+        }
+    },
+    "controls": {
+        "quickAdd": {
+            "enabled": true,
+            "templates": ["daily", "weekly", "custom"]
+        },
+        "bulkActions": {
+            "enabled": true,
+            "actions": [
+                "enable",
+                "disable",
+                "delete",
+                "optimize"
+            ]
+        }
+    },
+    "validation": {
+        "rules": {
+            "minimumInterval": "15m",
+            "maximumConcurrent": 2,
+            "requiredConditions": ["network", "battery"],
+            "conflicts": {
+                "check": true,
+                "resolution": "automatic"
+            }
+        },
+        "conditions": {
+            "network": {
+                "type": "enum",
+                "values": ["any", "wifi", "ethernet"],
+                "default": "wifi"
+            },
+            "battery": {
+                "type": "range",
+                "min": 0,
+                "max": 100,
+                "default": 20
+            },
+            "storage": {
+                "type": "size",
+                "min": "1GB",
+                "default": "5GB"
+            }
+        }
+    }
+}

@@ -1,0 +1,367 @@
+{
+    "type": "settings",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true
+    },
+    "layout": {
+        "type": "sectioned_list",
+        "animation": {
+            "type": "fade_slide",
+            "duration": 300
+        }
+    },
+    "header": {
+        "title": "Backup Settings",
+        "subtitle": "Configure backup behavior and preferences",
+        "icon": "settings",
+        "actions": [
+            {
+                "type": "button",
+                "icon": "restore",
+                "label": "Reset",
+                "action": "resetSettings",
+                "confirmRequired": true
+            }
+        ]
+    },
+    "sections": [
+        {
+            "id": "general",
+            "title": "General Settings",
+            "icon": "tune",
+            "settings": [
+                {
+                    "type": "toggle",
+                    "key": "auto_backup",
+                    "title": "Automatic Backup",
+                    "description": "Enable automatic background backups",
+                    "default": true,
+                    "onChange": "handleAutoBackupChange"
+                },
+                {
+                    "type": "select",
+                    "key": "backup_frequency",
+                    "title": "Backup Frequency",
+                    "description": "How often to perform backups",
+                    "dependsOn": "auto_backup",
+                    "options": [
+                        {
+                            "label": "Every Hour",
+                            "value": "1h"
+                        },
+                        {
+                            "label": "Every 6 Hours",
+                            "value": "6h"
+                        },
+                        {
+                            "label": "Daily",
+                            "value": "24h"
+                        },
+                        {
+                            "label": "Weekly",
+                            "value": "7d"
+                        }
+                    ],
+                    "default": "24h"
+                },
+                {
+                    "type": "time_range",
+                    "key": "active_hours",
+                    "title": "Active Hours",
+                    "description": "Time window when backups are allowed",
+                    "default": {
+                        "start": "22:00",
+                        "end": "06:00"
+                    }
+                }
+            ]
+        },
+        {
+            "id": "network",
+            "title": "Network Settings",
+            "icon": "wifi",
+            "settings": [
+                {
+                    "type": "radio_group",
+                    "key": "network_preference",
+                    "title": "Network Preference",
+                    "options": [
+                        {
+                            "label": "WiFi Only",
+                            "value": "wifi_only"
+                        },
+                        {
+                            "label": "Any Network",
+                            "value": "any"
+                        },
+                        {
+                            "label": "Custom",
+                            "value": "custom"
+                        }
+                    ],
+                    "default": "wifi_only"
+                },
+                {
+                    "type": "multi_select",
+                    "key": "trusted_networks",
+                    "title": "Trusted Networks",
+                    "description": "Select networks for backup",
+                    "dependsOn": "network_preference=custom",
+                    "options": "dynamic_wifi_list",
+                    "tags": true
+                },
+                {
+                    "type": "slider",
+                    "key": "bandwidth_limit",
+                    "title": "Bandwidth Limit",
+                    "description": "Maximum upload speed (MB/s)",
+                    "min": 0.1,
+                    "max": 10,
+                    "step": 0.1,
+                    "default": 2,
+                    "displayWith": "formatBandwidth"
+                }
+            ]
+        },
+        {
+            "id": "storage",
+            "title": "Storage Settings",
+            "icon": "storage",
+            "settings": [
+                {
+                    "type": "directory_picker",
+                    "key": "backup_paths",
+                    "title": "Backup Locations",
+                    "description": "Select folders to backup",
+                    "multiple": true,
+                    "filters": {
+                        "showHidden": false,
+                        "excludeSystem": true
+                    }
+                },
+                {
+                    "type": "file_pattern",
+                    "key": "exclusions",
+                    "title": "Exclusions",
+                    "description": "Files or patterns to exclude",
+                    "chips": true,
+                    "suggestions": [
+                        "*.tmp",
+                        "*.cache",
+                        "*/temp/*"
+                    ]
+                },
+                {
+                    "type": "size_limit",
+                    "key": "max_file_size",
+                    "title": "Maximum File Size",
+                    "description": "Skip files larger than this size",
+                    "default": "2GB",
+                    "options": [
+                        "500MB",
+                        "1GB",
+                        "2GB",
+                        "5GB",
+                        "No Limit"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "performance",
+            "title": "Performance",
+            "icon": "speed",
+            "settings": [
+                {
+                    "type": "slider",
+                    "key": "concurrent_uploads",
+                    "title": "Concurrent Uploads",
+                    "description": "Number of simultaneous uploads",
+                    "min": 1,
+                    "max": 5,
+                    "default": 2
+                },
+                {
+                    "type": "toggle",
+                    "key": "compression",
+                    "title": "Enable Compression",
+                    "description": "Compress files before upload",
+                    "default": true
+                },
+                {
+                    "type": "select",
+                    "key": "compression_level",
+                    "title": "Compression Level",
+                    "dependsOn": "compression",
+                    "options": [
+                        {
+                            "label": "Fastest",
+                            "value": "fastest"
+                        },
+                        {
+                            "label": "Balanced",
+                            "value": "balanced"
+                        },
+                        {
+                            "label": "Maximum",
+                            "value": "maximum"
+                        }
+                    ],
+                    "default": "balanced"
+                }
+            ]
+        },
+        {
+            "id": "notifications",
+            "title": "Notifications",
+            "icon": "notifications",
+            "settings": [
+                {
+                    "type": "checklist",
+                    "key": "notification_events",
+                    "title": "Notify On",
+                    "options": [
+                        {
+                            "label": "Backup Start",
+                            "value": "start"
+                        },
+                        {
+                            "label": "Backup Complete",
+                            "value": "complete"
+                        },
+                        {
+                            "label": "Backup Failed",
+                            "value": "error"
+                        },
+                        {
+                            "label": "Space Low",
+                            "value": "space_warning"
+                        }
+                    ],
+                    "default": ["complete", "error"]
+                },
+                {
+                    "type": "select",
+                    "key": "notification_priority",
+                    "title": "Priority",
+                    "options": [
+                        {
+                            "label": "Low",
+                            "value": "low"
+                        },
+                        {
+                            "label": "Normal",
+                            "value": "normal"
+                        },
+                        {
+                            "label": "High",
+                            "value": "high"
+                        }
+                    ],
+                    "default": "normal"
+                },
+                {
+                    "type": "sound_picker",
+                    "key": "notification_sound",
+                    "title": "Sound",
+                    "description": "Notification sound for events",
+                    "default": "default"
+                }
+            ]
+        },
+        {
+            "id": "advanced",
+            "title": "Advanced",
+            "icon": "code",
+            "settings": [
+                {
+                    "type": "number",
+                    "key": "retry_attempts",
+                    "title": "Retry Attempts",
+                    "description": "Number of retry attempts on failure",
+                    "min": 0,
+                    "max": 10,
+                    "default": 3
+                },
+                {
+                    "type": "toggle",
+                    "key": "debug_mode",
+                    "title": "Debug Mode",
+                    "description": "Enable detailed logging",
+                    "default": false
+                },
+                {
+                    "type": "select",
+                    "key": "log_level",
+                    "title": "Log Level",
+                    "dependsOn": "debug_mode",
+                    "options": [
+                        {
+                            "label": "Error",
+                            "value": "error"
+                        },
+                        {
+                            "label": "Warning",
+                            "value": "warning"
+                        },
+                        {
+                            "label": "Info",
+                            "value": "info"
+                        },
+                        {
+                            "label": "Debug",
+                            "value": "debug"
+                        }
+                    ],
+                    "default": "info"
+                }
+            ]
+        }
+    ],
+    "actions": {
+        "type": "floating",
+        "primary": {
+            "label": "Save",
+            "icon": "save",
+            "action": "saveSettings"
+        },
+        "secondary": [
+            {
+                "label": "Export",
+                "icon": "download",
+                "action": "exportSettings"
+            },
+            {
+                "label": "Import",
+                "icon": "upload",
+                "action": "importSettings"
+            }
+        ]
+    },
+    "validation": {
+        "rules": {
+            "backup_paths": {
+                "required": true,
+                "minItems": 1
+            },
+            "trusted_networks": {
+                "requiredIf": "network_preference=custom",
+                "minItems": 1
+            },
+            "bandwidth_limit": {
+                "min": 0.1
+            }
+        },
+        "messages": {
+            "backup_paths": "Select at least one backup location",
+            "trusted_networks": "Select at least one trusted network",
+            "bandwidth_limit": "Bandwidth limit must be greater than 0.1 MB/s"
+        }
+    },
+    "persistence": {
+        "storage": "secure",
+        "backup": true,
+        "restore": true
+    }
+}

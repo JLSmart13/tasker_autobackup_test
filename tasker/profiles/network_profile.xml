@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TaskerData>
+    <Profile>
+        <id>101</id>
+        <name>Network Monitor</name>
+        <state>true</state>
+
+        <!-- Network State Monitoring -->
+        <NetworkState>
+            <!-- WiFi Monitoring -->
+            <WiFi>
+                <enabled>true</enabled>
+                <ssidFilters>
+                    <trusted>
+                        <ssid>HomeWiFi</ssid>
+                        <ssid>WorkWiFi</ssid>
+                        <ssid>BackupServer</ssid>
+                    </trusted>
+                    <blocked>
+                        <ssid>PublicWiFi</ssid>
+                        <ssid>GuestNetwork</ssid>
+                    </blocked>
+                </ssidFilters>
+                <signalStrength>
+                    <minimum>-70</minimum>
+                    <preferred>-50</preferred>
+                </signalStrength>
+                <security>
+                    <requireEncryption>true</requireEncryption>
+                    <minimumSecurity>WPA2</minimumSecurity>
+                </security>
+            </WiFi>
+
+            <!-- Mobile Data Monitoring -->
+            <MobileData>
+                <enabled>true</enabled>
+                <allowBackup>false</allowBackup>
+                <requirements>
+                    <minSpeed>1000</minSpeed>
+                    <networkType>4G,5G</networkType>
+                    <signalStrength>-90</signalStrength>
+                </requirements>
+                <dataLimit>
+                    <enabled>true</enabled>
+                    <maxUsage>100MB</maxUsage>
+                    <warningThreshold>80</warningThreshold>
+                </dataLimit>
+            </MobileData>
+
+            <!-- VPN Monitoring -->
+            <VPN>
+                <required>false</required>
+                <trustedProviders>
+                    <provider>CompanyVPN</provider>
+                    <provider>SecureNet</provider>
+                </trustedProviders>
+            </VPN>
+        </NetworkState>
+
+        <!-- Performance Monitoring -->
+        <PerformanceMonitor>
+            <speedTest>
+                <interval>3600</interval>
+                <thresholds>
+                    <download>10000</download>
+                    <upload>5000</upload>
+                    <latency>100</latency>
+                </thresholds>
+            </speedTest>
+            <qualityMetrics>
+                <packetLoss>
+                    <maximum>2</maximum>
+                    <warning>1</warning>
+                </packetLoss>
+                <jitter>
+                    <maximum>50</maximum>
+                    <warning>30</warning>
+                </jitter>
+                <stability>
+                    <minimumUptime>300</minimumUptime>
+                    <reconnectDelay>60</reconnectDelay>
+                </stability>
+            </qualityMetrics>
+        </PerformanceMonitor>
+
+        <!-- Event Triggers -->
+        <Events>
+            <!-- Network Change Events -->
+            <NetworkChange>
+                <trigger>WIFI_STATE</trigger>
+                <trigger>MOBILE_DATA</trigger>
+                <trigger>VPN_STATE</trigger>
+                <cooldown>30</cooldown>
+            </NetworkChange>
+
+            <!-- Quality Change Events -->
+            <QualityChange>
+                <trigger>SIGNAL_STRENGTH</trigger>
+                <trigger>NETWORK_SPEED</trigger>
+                <trigger>CONNECTION_TYPE</trigger>
+                <threshold>20</threshold>
+            </QualityChange>
+        </Events>
+
+        <!-- Actions -->
+        <Actions>
+            <!-- Network State Changes -->
+            <OnNetworkAvailable>
+                <Task>
+                    <id>301</id>
+                    <name>CheckBackupQueue</name>
+                    <priority>5</priority>
+                </Task>
+            </OnNetworkAvailable>
+
+            <OnNetworkLost>
+                <Task>
+                    <id>302</id>
+                    <name>PauseBackup</name>
+                    <priority>10</priority>
+                </Task>
+            </OnNetworkLost>
+
+            <!-- Quality Changes -->
+            <OnQualityDegraded>
+                <Task>
+                    <id>303</id>
+                    <name>AdjustBackupSpeed</name>
+                    <priority>5</priority>
+                </Task>
+            </OnQualityDegraded>
+
+            <OnQualityImproved>
+                <Task>
+                    <id>304</id>
+                    <name>OptimizeBackupSpeed</name>
+                    <priority>5</priority>
+                </Task>
+            </OnQualityImproved>
+        </Actions>
+
+        <!-- Optimization Rules -->
+        <OptimizationRules>
+            <!-- Speed Optimization -->
+            <SpeedOptimization>
+                <rule>
+                    <condition>%NETWORK_QUALITY &gt; 80</condition>
+                    <action>
+                        <chunkSize>8MB</chunkSize>
+                        <concurrent>4</concurrent>
+                        <compression>false</compression>
+                    </action>
+                </rule>
+                <rule>
+                    <condition>%NETWORK_QUALITY &gt; 50</condition>
+                    <action>
+                        <chunkSize>4MB</chunkSize>
+                        <concurrent>2</concurrent>
+                        <compression>true</compression>
+                    </action>
+                </rule>
+                <rule>
+                    <condition>%NETWORK_QUALITY &lt;= 50</condition>
+                    <action>
+                        <chunkSize>1MB</chunkSize>
+                        <concurrent>1</concurrent>
+                        <compression>true</compression>
+                    </action>
+                </rule>
+            </SpeedOptimization>
+
+            <!-- Resource Management -->
+            <ResourceOptimization>
+                <backgroundApps>
+                    <throttle>true</throttle>
+                    <excludeList>
+                        <app>com.important.app</app>
+                        <app>com.critical.service</app>
+                    </excludeList>
+                </backgroundApps>
+                <systemResources>
+                    <cpuLimit>70</cpuLimit>
+                    <memoryLimit>60</memoryLimit>
+                    <networkPriority>high</networkPriority>
+                </systemResources>
+            </ResourceOptimization>
+        </OptimizationRules>
+
+        <!-- Error Handling -->
+        <ErrorHandling>
+            <networkErrors>
+                <maxRetries>5</maxRetries>
+                <backoffMultiplier>2</backoffMultiplier>
+                <initialDelay>30</initialDelay>
+                <maxDelay>3600</maxDelay>
+            </networkErrors>
+            <qualityIssues>
+                <threshold>3</threshold>
+                <cooldown>300</cooldown>
+                <action>pause_backup</action>
+            </qualityIssues>
+        </ErrorHandling>
+
+        <!-- Notification Settings -->
+        <Notifications>
+            <networkChanges>
+                <enabled>true</enabled>
+                <priority>low</priority>
+            </networkChanges>
+            <qualityIssues>
+                <enabled>true</enabled>
+                <priority>normal</priority>
+                <threshold>50</threshold>
+            </qualityIssues>
+        </Notifications>
+
+        <!-- Logging -->
+        <Logging>
+            <enabled>true</enabled>
+            <level>info</level>
+            <retention>7</retention>
+            <metrics>
+                <speedTests>true</speedTests>
+                <qualityChanges>true</qualityChanges>
+                <networkSwitches>true</networkSwitches>
+            </metrics>
+        </Logging>
+    </Profile>
+</TaskerData>

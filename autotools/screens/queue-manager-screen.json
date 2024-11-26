@@ -1,0 +1,231 @@
+{
+    "type": "queue_manager_screen",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true
+    },
+    "layout": {
+        "type": "multi_column",
+        "columns": {
+            "xs": 1,
+            "sm": 2,
+            "md": 3
+        }
+    },
+    "header": {
+        "type": "status_bar",
+        "metrics": [
+            {
+                "label": "Active Transfers",
+                "value": "%active_transfers%",
+                "icon": "sync"
+            },
+            {
+                "label": "Queued Items",
+                "value": "%queued_items%",
+                "icon": "queue"
+            },
+            {
+                "label": "Upload Speed",
+                "value": "%upload_speed%",
+                "icon": "upload",
+                "format": "speed"
+            }
+        ],
+        "actions": [
+            {
+                "type": "button",
+                "icon": "pause_all",
+                "label": "Pause All",
+                "action": "pauseAllTransfers",
+                "visibleWhen": "%active_transfers% > 0"
+            },
+            {
+                "type": "button",
+                "icon": "play_arrow",
+                "label": "Resume All",
+                "action": "resumeAllTransfers",
+                "visibleWhen": "%paused_transfers% > 0"
+            }
+        ]
+    },
+    "sections": {
+        "active": {
+            "title": "Active Transfers",
+            "type": "transfer_list",
+            "maxItems": 5,
+            "itemTemplate": {
+                "type": "transfer_item",
+                "fields": [
+                    {
+                        "type": "icon",
+                        "field": "fileType",
+                        "mappings": {
+                            "document": "description",
+                            "image": "image",
+                            "video": "video_file",
+                            "audio": "audio_file"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "field": "fileName",
+                        "style": "title"
+                    },
+                    {
+                        "type": "progress",
+                        "field": "progress",
+                        "showPercentage": true
+                    },
+                    {
+                        "type": "text",
+                        "field": "speed",
+                        "format": "speed",
+                        "style": "caption"
+                    },
+                    {
+                        "type": "text",
+                        "field": "timeRemaining",
+                        "format": "duration",
+                        "style": "caption"
+                    }
+                ],
+                "actions": [
+                    {
+                        "icon": "pause",
+                        "action": "pauseTransfer"
+                    },
+                    {
+                        "icon": "cancel",
+                        "action": "cancelTransfer"
+                    }
+                ]
+            }
+        },
+        "pending": {
+            "title": "Pending Transfers",
+            "type": "queue_list",
+            "sortable": true,
+            "itemTemplate": {
+                "type": "queue_item",
+                "fields": [
+                    {
+                        "type": "icon",
+                        "field": "priority",
+                        "mappings": {
+                            "high": "priority_high",
+                            "normal": "priority_medium",
+                            "low": "priority_low"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "field": "fileName",
+                        "style": "title"
+                    },
+                    {
+                        "type": "text",
+                        "field": "size",
+                        "format": "fileSize",
+                        "style": "subtitle"
+                    },
+                    {
+                        "type": "chip",
+                        "field": "status",
+                        "colors": {
+                            "queued": "default",
+                            "waiting": "info",
+                            "paused": "warning"
+                        }
+                    }
+                ],
+                "actions": [
+                    {
+                        "icon": "arrow_upward",
+                        "action": "increasePriority"
+                    },
+                    {
+                        "icon": "arrow_downward",
+                        "action": "decreasePriority"
+                    },
+                    {
+                        "icon": "remove",
+                        "action": "removeFromQueue"
+                    }
+                ]
+            }
+        },
+        "completed": {
+            "title": "Completed Transfers",
+            "type": "history_list",
+            "maxItems": 50,
+            "itemTemplate": {
+                "type": "history_item",
+                "fields": [
+                    {
+                        "type": "icon",
+                        "field": "status",
+                        "mappings": {
+                            "success": "check_circle",
+                            "error": "error",
+                            "cancelled": "cancel"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "field": "fileName",
+                        "style": "title"
+                    },
+                    {
+                        "type": "text",
+                        "field": "completedAt",
+                        "format": "relative",
+                        "style": "caption"
+                    }
+                ],
+                "actions": [
+                    {
+                        "icon": "refresh",
+                        "action": "retryTransfer",
+                        "visibleWhen": "status === 'error'"
+                    },
+                    {
+                        "icon": "delete",
+                        "action": "removeFromHistory"
+                    }
+                ]
+            }
+        }
+    },
+    "filters": {
+        "type": "filter_bar",
+        "filters": [
+            {
+                "type": "select",
+                "field": "status",
+                "options": ["all", "active", "pending", "completed", "error"]
+            },
+            {
+                "type": "select",
+                "field": "fileType",
+                "options": ["all", "document", "image", "video", "audio"]
+            },
+            {
+                "type": "select",
+                "field": "priority",
+                "options": ["all", "high", "normal", "low"]
+            }
+        ]
+    },
+    "settings": {
+        "autoRefresh": true,
+        "refreshInterval": 1000,
+        "maxConcurrentTransfers": 3,
+        "retryAttempts": 3,
+        "notifications": {
+            "onComplete": true,
+            "onError": true,
+            "onPause": false
+        }
+    }
+}

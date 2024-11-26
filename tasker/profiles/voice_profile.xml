@@ -1,0 +1,83 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<TaskerData>
+    <Profile sr="voice_profile">
+        <cdate>1700579200000</cdate>
+        <id>4</id>
+        <nme>Voice Command Profile</nme>
+        <State sr="con0" ve="2">
+            <code>30</code>
+            <label>Voice Commands</label>
+        </State>
+        
+        <!-- AutoVoice Integration -->
+        <Event sr="con0" ve="2">
+            <code>30</code>
+            <Str sr="arg0">backup*</Str>
+            <Str sr="arg1">start|pause|resume|status|check|progress</Str>
+            <Int sr="arg2" val="0"/>
+        </Event>
+
+        <!-- Task Links -->
+        <Enter sr="enter">
+            <code>547</code>
+            <target>task_voice_control</target>
+            <priority>10</priority>
+        </Enter>
+
+        <!-- Commands Configuration -->
+        <CommandList>
+            <Command>
+                <trigger>start backup</trigger>
+                <task>StartBackup</task>
+                <confirmation>Starting backup process</confirmation>
+            </Command>
+            <Command>
+                <trigger>pause backup</trigger>
+                <task>PauseBackup</task>
+                <confirmation>Pausing backup</confirmation>
+            </Command>
+            <Command>
+                <trigger>resume backup</trigger>
+                <task>ResumeBackup</task>
+                <confirmation>Resuming backup</confirmation>
+            </Command>
+            <Command>
+                <trigger>check status</trigger>
+                <task>CheckStatus</task>
+                <confirmation>Checking backup status</confirmation>
+            </Command>
+        </CommandList>
+
+        <!-- Voice Response Settings -->
+        <ResponseConfig>
+            <enabled>true</enabled>
+            <voice>default</voice>
+            <speed>1.0</speed>
+            <pitch>1.0</pitch>
+        </ResponseConfig>
+
+        <!-- Error Handling -->
+        <ErrorHandling>
+            <retryCount>2</retryCount>
+            <fallbackTask>DefaultResponse</fallbackTask>
+            <errorResponse>I couldn't understand the backup command. Please try again.</errorResponse>
+        </ErrorHandling>
+
+        <!-- Natural Language Processing -->
+        <NLP>
+            <enabled>true</enabled>
+            <synonyms>
+                <word>begin</word>
+                <equals>start</equals>
+            </synonyms>
+            <synonyms>
+                <word>stop</word>
+                <equals>pause</equals>
+            </synonyms>
+            <synonyms>
+                <word>continue</word>
+                <equals>resume</equals>
+            </synonyms>
+        </NLP>
+    </Profile>
+</TaskerData>

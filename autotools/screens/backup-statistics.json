@@ -1,0 +1,308 @@
+{
+    "type": "statistics_dashboard",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true
+    },
+    "refresh": {
+        "interval": 10000,
+        "auto": true
+    },
+    "header": {
+        "type": "insights",
+        "metrics": {
+            "data": {
+                "source": "getBackupInsights()",
+                "refresh": 60000
+            },
+            "display": [
+                {
+                    "label": "Total Backed Up",
+                    "value": "%total_backed_up%",
+                    "format": "fileSize",
+                    "trend": {
+                        "value": "%backup_trend%",
+                        "duration": "24h"
+                    }
+                },
+                {
+                    "label": "Success Rate",
+                    "value": "%success_rate%",
+                    "format": "percentage",
+                    "trend": {
+                        "value": "%success_trend%",
+                        "duration": "24h"
+                    }
+                },
+                {
+                    "label": "Active Files",
+                    "value": "%active_files%",
+                    "format": "number",
+                    "trend": {
+                        "value": "%active_trend%",
+                        "duration": "24h"
+                    }
+                }
+            ]
+        }
+    },
+    "sections": [
+        {
+            "type": "historical_performance",
+            "title": "Backup Performance",
+            "span": { "xs": 1, "md": 2 },
+            "charts": [
+                {
+                    "type": "line_chart",
+                    "data": {
+                        "source": "getBackupHistory()",
+                        "timeRange": "7d",
+                        "granularity": "hour"
+                    },
+                    "series": [
+                        {
+                            "name": "Upload Speed",
+                            "metric": "speed",
+                            "color": "primary",
+                            "format": "speedMBs"
+                        },
+                        {
+                            "name": "File Count",
+                            "metric": "files",
+                            "color": "secondary",
+                            "axis": "right"
+                        }
+                    ],
+                    "options": {
+                        "tooltip": {
+                            "shared": true,
+                            "format": "detailed"
+                        },
+                        "zoom": {
+                            "enabled": true,
+                            "type": "x"
+                        },
+                        "annotations": {
+                            "events": true,
+                            "thresholds": true
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "type": "file_analysis",
+            "title": "File Distribution",
+            "span": { "xs": 1, "md": 1 },
+            "charts": [
+                {
+                    "type": "treemap",
+                    "data": {
+                        "source": "getFileDistribution()",
+                        "refresh": 300000
+                    },
+                    "options": {
+                        "hierarchy": ["type", "subtype"],
+                        "value": "size",
+                        "color": "count",
+                        "labels": {
+                            "show": true,
+                            "format": "truncate"
+                        },
+                        "tooltip": {
+                            "format": "detailed"
+                        },
+                        "interaction": {
+                            "enabled": true,
+                            "type": "drill-down"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "type": "resource_usage",
+            "title": "System Resources",
+            "span": { "xs": 1, "md": 1 },
+            "charts": [
+                {
+                    "type": "gauge_grid",
+                    "data": {
+                        "source": "getResourceUsage()",
+                        "refresh": 5000
+                    },
+                    "gauges": [
+                        {
+                            "label": "CPU",
+                            "metric": "cpu",
+                            "thresholds": {
+                                "warning": 70,
+                                "critical": 90
+                            }
+                        },
+                        {
+                            "label": "Memory",
+                            "metric": "memory",
+                            "thresholds": {
+                                "warning": 75,
+                                "critical": 90
+                            }
+                        },
+                        {
+                            "label": "Storage",
+                            "metric": "storage",
+                            "thresholds": {
+                                "warning": 80,
+                                "critical": 95
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "time_patterns",
+            "title": "Backup Patterns",
+            "span": { "xs": 1, "md": 2 },
+            "charts": [
+                {
+                    "type": "heatmap",
+                    "data": {
+                        "source": "getBackupPatterns()",
+                        "refresh": 3600000
+                    },
+                    "options": {
+                        "xAxis": {
+                            "type": "hour",
+                            "format": "24h"
+                        },
+                        "yAxis": {
+                            "type": "weekday",
+                            "format": "short"
+                        },
+                        "color": {
+                            "scale": "sequential",
+                            "scheme": "blues"
+                        },
+                        "tooltip": {
+                            "format": "detailed"
+                        },
+                        "legend": {
+                            "show": true,
+                            "position": "right"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "type": "error_analysis",
+            "title": "Error Patterns",
+            "span": { "xs": 1, "md": 2 },
+            "data": {
+                "source": "getErrorAnalysis()",
+                "refresh": 300000
+            },
+            "visualizations": [
+                {
+                    "type": "pareto",
+                    "options": {
+                        "bars": {
+                            "color": "error",
+                            "axis": "left"
+                        },
+                        "line": {
+                            "color": "cumulative",
+                            "axis": "right"
+                        }
+                    }
+                },
+                {
+                    "type": "timeline",
+                    "options": {
+                        "points": true,
+                        "lines": true,
+                        "groupBy": "type"
+                    }
+                }
+            ]
+        }
+    ],
+    "filters": {
+        "type": "toolbar",
+        "position": "top",
+        "components": [
+            {
+                "type": "date_range",
+                "default": "7d",
+                "options": ["24h", "7d", "30d", "custom"]
+            },
+            {
+                "type": "multi_select",
+                "label": "File Types",
+                "options": "dynamic"
+            },
+            {
+                "type": "select",
+                "label": "Status",
+                "options": [
+                    "All",
+                    "Success",
+                    "Error",
+                    "In Progress"
+                ]
+            }
+        ]
+    },
+    "export": {
+        "enabled": true,
+        "formats": [
+            {
+                "type": "pdf",
+                "template": "report"
+            },
+            {
+                "type": "excel",
+                "template": "detailed"
+            },
+            {
+                "type": "json",
+                "raw": true
+            }
+        ]
+    },
+    "insights": {
+        "enabled": true,
+        "types": [
+            {
+                "type": "trend",
+                "threshold": 20,
+                "period": "24h"
+            },
+            {
+                "type": "anomaly",
+                "sensitivity": "medium",
+                "metrics": ["speed", "errors"]
+            },
+            {
+                "type": "pattern",
+                "window": "7d",
+                "metrics": ["timing", "volume"]
+            }
+        ]
+    },
+    "interactivity": {
+        "drill_down": {
+            "enabled": true,
+            "maxDepth": 3
+        },
+        "tooltips": {
+            "enabled": true,
+            "delay": 200
+        },
+        "selection": {
+            "enabled": true,
+            "mode": "multi"
+        }
+    }
+}

@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TaskerData>
+    <Profile>
+        <id>100</id>
+        <name>Automatic Backup</name>
+        <state>true</state>
+        
+        <!-- Time Context -->
+        <TimeContext>
+            <fromTime>00:00</fromTime>
+            <toTime>23:59</toTime>
+            <repeatType>daily</repeatType>
+            <cooldownPeriod>3600</cooldownPeriod>
+        </TimeContext>
+
+        <!-- State Conditions -->
+        <State>
+            <condition>%SCREEN eq off</condition>
+            <condition>%POWER eq any</condition>
+            <condition>%WIFI eq on</condition>
+            <condition>%BATTERY &gt; 20</condition>
+        </State>
+
+        <!-- Event Triggers -->
+        <Event>
+            <trigger>File Modified</trigger>
+            <path>/storage/emulated/0/DCIM/Camera</path>
+            <path>/storage/emulated/0/Documents</path>
+            <path>/storage/emulated/0/Download</path>
+            <cooldown>300</cooldown>
+        </Event>
+
+        <!-- Dynamic Conditions -->
+        <DynamicState>
+            <condition>
+                <type>JavaScript</type>
+                <code>
+                    function checkConditions() {
+                        // Network quality check
+                        const networkQuality = global('NETWORK_QUALITY');
+                        if (networkQuality &lt; 30) return false;
+
+                        // Storage space check
+                        const freeSpace = global('STORAGE_FREE');
+                        if (freeSpace &lt; 100 * 1024 * 1024) return false;
+
+                        // System load check
+                        const cpuLoad = global('CPU_LOAD');
+                        if (cpuLoad &gt; 80) return false;
+
+                        return true;
+                    }
+                </code>
+            </condition>
+        </DynamicState>
+
+        <!-- Schedule Configuration -->
+        <Schedule>
+            <!-- Regular backup schedule -->
+            <RegularBackup>
+                <time>02:00</time>
+                <daysOfWeek>1,2,3,4,5,6,7</daysOfWeek>
+                <condition>%WIFI eq on</condition>
+                <condition>%BATTERY &gt; 40</condition>
+            </RegularBackup>
+
+            <!-- Priority backup schedule -->
+            <PriorityBackup>
+                <interval>3600</interval>
+                <paths>
+                    <path>/storage/emulated/0/Documents/Important</path>
+                    <path>/storage/emulated/0/DCIM/Camera</path>
+                </paths>
+                <condition>%WIFI eq on</condition>
+            </PriorityBackup>
+
+            <!-- Real-time backup -->
+            <RealtimeBackup>
+                <paths>
+                    <path>/storage/emulated/0/Documents/Critical</path>
+                </paths>
+                <delay>60</delay>
+                <condition>%WIFI eq on</condition>
+            </RealtimeBackup>
+        </Schedule>
+
+        <!-- Actions -->
+        <Enter>
+            <Task>
+                <id>200</id>
+                <name>StartBackup</name>
+                <priority>10</priority>
+            </Task>
+        </Enter>
+
+        <Exit>
+            <Task>
+                <id>201</id>
+                <name>StopBackup</name>
+                <priority>10</priority>
+            </Task>
+        </Exit>
+
+        <!-- Variable Configuration -->
+        <Variables>
+            <Variable>
+                <name>%BACKUP_RUNNING</name>
+                <value>0</value>
+            </Variable>
+            <Variable>
+                <name>%LAST_BACKUP</name>
+                <value>%TIMES</value>
+            </Variable>
+            <Variable>
+                <name>%BACKUP_STATUS</name>
+                <value>ready</value>
+            </Variable>
+        </Variables>
+
+        <!-- Collision Handling -->
+        <CollisionHandling>
+            <prevention>true</prevention>
+            <cooldown>300</cooldown>
+            <priority>10</priority>
+        </CollisionHandling>
+
+        <!-- Error Handling -->
+        <ErrorHandling>
+            <maxRetries>3</maxRetries>
+            <retryDelay>300</retryDelay>
+            <notification>true</notification>
+            <logErrors>true</logErrors>
+        </ErrorHandling>
+
+        <!-- Network Conditions -->
+        <NetworkConditions>
+            <preferredNetworks>
+                <ssid>HomeWiFi</ssid>
+                <ssid>WorkWiFi</ssid>
+            </preferredNetworks>
+            <allowMobileData>false</allowMobileData>
+            <minSpeed>1000</minSpeed>
+            <vpnRequired>false</vpnRequired>
+        </NetworkConditions>
+
+        <!-- Power Management -->
+        <PowerManagement>
+            <requireCharging>false</requireCharging>
+            <minBattery>20</minBattery>
+            <thermalThrottle>true</thermalThrottle>
+            <powerSaveExempt>true</powerSaveExempt>
+        </PowerManagement>
+
+        <!-- Resource Management -->
+        <ResourceManagement>
+            <cpuLimit>80</cpuLimit>
+            <memoryLimit>70</memoryLimit>
+            <storageThreshold>100</storageThreshold>
+            <backgroundPriority>true</backgroundPriority>
+        </ResourceManagement>
+
+        <!-- Notification Configuration -->
+        <Notifications>
+            <enabled>true</enabled>
+            <showProgress>true</showProgress>
+            <sound>false</sound>
+            <vibrate>false</vibrate>
+            <priority>-1</priority>
+            <category>backup</category>
+        </Notifications>
+    </Profile>
+</TaskerData>

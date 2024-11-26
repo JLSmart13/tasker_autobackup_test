@@ -1,0 +1,175 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<TaskerData>
+    <Scene sr="pip_monitor">
+        <cdate>1700579200000</cdate>
+        <edate>1700579200000</edate>
+        <heightLand>-1</heightLand>
+        <heightPort>400</heightPort>
+        <widthLand>-1</widthLand>
+        <widthPort>300</widthPort>
+        <nme>PIP Monitor</nme>
+        <flags>8</flags>
+
+        <!-- Main Container -->
+        <Container sr="elements0">
+            <flags>4</flags>
+            <geomy>0</geomy>
+            <padding>8,8,8,8</padding>
+            <type>relative</type>
+
+            <!-- Header -->
+            <Header sr="elements1">
+                <flags>4</flags>
+                <geomy>0</geomy>
+                <text>Backup Status</text>
+                <TextSize>18</TextSize>
+                <TextStyle>bold</TextStyle>
+                <Gravity>left|center_vertical</Gravity>
+                
+                <!-- Close Button -->
+                <ImageButton sr="elements2">
+                    <flags>4</flags>
+                    <geomx>right</geomx>
+                    <src>ic_close</src>
+                    <clickTask>Close PIP</clickTask>
+                </ImageButton>
+
+                <!-- Minimize Button -->
+                <ImageButton sr="elements3">
+                    <flags>4</flags>
+                    <geomx>right-48</geomx>
+                    <src>ic_minimize</src>
+                    <clickTask>Minimize PIP</clickTask>
+                </ImageButton>
+            </Header>
+
+            <!-- Current File Section -->
+            <Container sr="elements4">
+                <flags>4</flags>
+                <geomy>60</geomy>
+                <padding>8,8,8,8</padding>
+
+                <Text sr="elements5">
+                    <flags>4</flags>
+                    <text>Current File:</text>
+                    <TextSize>14</TextSize>
+                    <TextColor>#757575</TextColor>
+                </Text>
+
+                <Text sr="elements6">
+                    <flags>4</flags>
+                    <geomy>20</geomy>
+                    <text>%current_file</text>
+                    <TextSize>16</TextSize>
+                    <Gravity>left</Gravity>
+                    <maxLines>1</maxLines>
+                    <ellipsize>end</ellipsize>
+                </Text>
+            </Container>
+
+            <!-- Progress Section -->
+            <Container sr="elements7">
+                <flags>4</flags>
+                <geomy>120</geomy>
+                <padding>8,8,8,8</padding>
+
+                <ProgressBar sr="elements8">
+                    <flags>4</flags>
+                    <max>100</max>
+                    <progress>%backup_progress</progress>
+                    <style>horizontal</style>
+                    <indeterminate>false</indeterminate>
+                </ProgressBar>
+
+                <Text sr="elements9">
+                    <flags>4</flags>
+                    <geomy>30</geomy>
+                    <text>%backup_progress% %</text>
+                    <TextSize>14</TextSize>
+                    <Gravity>right</Gravity>
+                </Text>
+            </Container>
+
+            <!-- Stats Section -->
+            <Container sr="elements10">
+                <flags>4</flags>
+                <geomy>180</geomy>
+                <padding>8,8,8,8</padding>
+
+                <!-- Transfer Speed -->
+                <Text sr="elements11">
+                    <flags>4</flags>
+                    <text>Speed: %transfer_speed% MB/s</text>
+                    <TextSize>14</TextSize>
+                </Text>
+
+                <!-- Files Remaining -->
+                <Text sr="elements12">
+                    <flags>4</flags>
+                    <geomy>25</geomy>
+                    <text>Files: %files_remaining%</text>
+                    <TextSize>14</TextSize>
+                </Text>
+
+                <!-- Time Remaining -->
+                <Text sr="elements13">
+                    <flags>4</flags>
+                    <geomy>50</geomy>
+                    <text>ETA: %time_remaining%</text>
+                    <TextSize>14</TextSize>
+                </Text>
+            </Container>
+
+            <!-- Network Quality -->
+            <Container sr="elements14">
+                <flags>4</flags>
+                <geomy>280</geomy>
+                <padding>8,8,8,8</padding>
+
+                <Text sr="elements15">
+                    <flags>4</flags>
+                    <text>Network Quality:</text>
+                    <TextSize>14</TextSize>
+                </Text>
+
+                <ProgressBar sr="elements16">
+                    <flags>4</flags>
+                    <geomy>25</geomy>
+                    <max>100</max>
+                    <progress>%network_quality%</progress>
+                    <style>horizontal</style>
+                </ProgressBar>
+            </Container>
+
+            <!-- Control Buttons -->
+            <Container sr="elements17">
+                <flags>4</flags>
+                <geomy>340</geomy>
+                <padding>8,8,8,8</padding>
+
+                <Button sr="elements18">
+                    <flags>4</flags>
+                    <text>Pause</text>
+                    <TextSize>14</TextSize>
+                    <clickTask>Pause Backup</clickTask>
+                </Button>
+
+                <Button sr="elements19">
+                    <flags>4</flags>
+                    <geomx>center</geomx>
+                    <text>Resume</text>
+                    <TextSize>14</TextSize>
+                    <clickTask>Resume Backup</clickTask>
+                </Button>
+
+                <Button sr="elements20">
+                    <flags>4</flags>
+                    <geomx>right</geomx>
+                    <text>Stop</text>
+                    <TextSize>14</TextSize>
+                    <clickTask>Stop Backup</clickTask>
+                </Button>
+            </Container>
+        </Container>
+    </Scene>
+</TaskerData>

@@ -1,0 +1,194 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<TaskerData>
+    <Scene sr="settings_scene">
+        <cdate>1700579200000</cdate>
+        <edate>1700579200000</edate>
+        <heightLand>-1</heightLand>
+        <heightPort>600</heightPort>
+        <widthLand>-1</widthLand>
+        <widthPort>360</widthPort>
+        <nme>Backup Settings</nme>
+        <flags>8</flags>
+
+        <!-- Main Container -->
+        <ScrollView sr="elements0">
+            <flags>4</flags>
+
+            <!-- Header -->
+            <Container sr="elements1">
+                <flags>4</flags>
+                <geomy>0</geomy>
+                <padding>16,16,16,16</padding>
+                <background>#1a73e8</background>
+
+                <Text sr="elements2">
+                    <flags>4</flags>
+                    <text>Backup Settings</text>
+                    <TextSize>22</TextSize>
+                    <TextColor>#ffffff</TextColor>
+                    <TextStyle>bold</TextStyle>
+                </Text>
+            </Container>
+
+            <!-- General Settings Section -->
+            <Container sr="elements3">
+                <flags>4</flags>
+                <geomy>80</geomy>
+                <padding>16,8,16,8</padding>
+
+                <Text sr="elements4">
+                    <flags>4</flags>
+                    <text>General Settings</text>
+                    <TextSize>16</TextSize>
+                    <TextStyle>bold</TextStyle>
+                </Text>
+
+                <!-- Auto Backup Toggle -->
+                <CheckBox sr="elements5">
+                    <flags>4</flags>
+                    <geomy>40</geomy>
+                    <text>Enable Auto Backup</text>
+                    <checked>%auto_backup</checked>
+                    <TextSize>14</TextSize>
+                    <changeTask>Toggle Auto Backup</changeTask>
+                </CheckBox>
+
+                <!-- Backup Schedule -->
+                <Spinner sr="elements6">
+                    <flags>4</flags>
+                    <geomy>80</geomy>
+                    <entries>Every Hour|Every 6 Hours|Daily|Weekly</entries>
+                    <selected>%backup_schedule</selected>
+                    <TextSize>14</TextSize>
+                    <changeTask>Update Schedule</changeTask>
+                </Spinner>
+            </Container>
+
+            <!-- Network Settings -->
+            <Container sr="elements7">
+                <flags>4</flags>
+                <geomy>200</geomy>
+                <padding>16,8,16,8</padding>
+
+                <Text sr="elements8">
+                    <flags>4</flags>
+                    <text>Network Settings</text>
+                    <TextSize>16</TextSize>
+                    <TextStyle>bold</TextStyle>
+                </Text>
+
+                <!-- WiFi Only Toggle -->
+                <CheckBox sr="elements9">
+                    <flags>4</flags>
+                    <geomy>40</geomy>
+                    <text>WiFi Only</text>
+                    <checked>%wifi_only</checked>
+                    <TextSize>14</TextSize>
+                    <changeTask>Toggle WiFi Only</changeTask>
+                </CheckBox>
+
+                <!-- Bandwidth Limit -->
+                <Slider sr="elements10">
+                    <flags>4</flags>
+                    <geomy>80</geomy>
+                    <max>10</max>
+                    <progress>%bandwidth_limit</progress>
+                    <TextSize>14</TextSize>
+                    <changeTask>Update Bandwidth</changeTask>
+                </Slider>
+
+                <Text sr="elements11">
+                    <flags>4</flags>
+                    <geomy>120</geomy>
+                    <text>Bandwidth Limit: %bandwidth_limit% MB/s</text>
+                    <TextSize>14</TextSize>
+                </Text>
+            </Container>
+
+            <!-- Storage Settings -->
+            <Container sr="elements12">
+                <flags>4</flags>
+                <geomy>360</geomy>
+                <padding>16,8,16,8</padding>
+
+                <Text sr="elements13">
+                    <flags>4</flags>
+                    <text>Storage Settings</text>
+                    <TextSize>16</TextSize>
+                    <TextStyle>bold</TextStyle>
+                </Text>
+
+                <!-- Storage Path -->
+                <EditText sr="elements14">
+                    <flags>4</flags>
+                    <geomy>40</geomy>
+                    <hint>Backup Path</hint>
+                    <text>%backup_path</text>
+                    <TextSize>14</TextSize>
+                    <changeTask>Update Path</changeTask>
+                </EditText>
+
+                <!-- Storage Limit -->
+                <Slider sr="elements15">
+                    <flags>4</flags>
+                    <geomy>80</geomy>
+                    <max>100</max>
+                    <progress>%storage_limit</progress>
+                    <TextSize>14</TextSize>
+                    <changeTask>Update Storage Limit</changeTask>
+                </Slider>
+
+                <Text sr="elements16">
+                    <flags>4</flags>
+                    <geomy>120</geomy>
+                    <text>Storage Limit: %storage_limit% GB</text>
+                    <TextSize>14</TextSize>
+                </Text>
+            </Container>
+
+            <!-- Notification Settings -->
+            <Container sr="elements17">
+                <flags>4</flags>
+                <geomy>520</geomy>
+                <padding>16,8,16,8</padding>
+
+                <Text sr="elements18">
+                    <flags>4</flags>
+                    <text>Notifications</text>
+                    <TextSize>16</TextSize>
+                    <TextStyle>bold</TextStyle>
+                </Text>
+
+                <!-- Progress Notifications -->
+                <CheckBox sr="elements19">
+                    <flags>4</flags>
+                    <geomy>40</geomy>
+                    <text>Show Progress</text>
+                    <checked>%show_progress</checked>
+                    <TextSize>14</TextSize>
+                    <changeTask>Toggle Progress</changeTask>
+                </CheckBox>
+
+                <!-- Error Notifications -->
+                <CheckBox sr="elements20">
+                    <flags>4</flags>
+                    <geomy>80</geomy>
+                    <text>Show Errors</text>
+                    <checked>%show_errors</checked>
+                    <TextSize>14</TextSize>
+                    <changeTask>Toggle Errors</changeTask>
+                </CheckBox>
+            </Container>
+
+            <!-- Save Button -->
+            <Button sr="elements21">
+                <flags>4</flags>
+                <geomy>640</geomy>
+                <text>Save Settings</text>
+                <TextSize>16</TextSize>
+                <TextStyle>bold</TextStyle>
+                <clickTask>Save Settings</clickTask>
+            </Button>
+        </ScrollView>
+    </Scene>
+</TaskerData>

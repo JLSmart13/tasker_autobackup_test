@@ -1,0 +1,345 @@
+{
+    "type": "analytics_dashboard",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true,
+        "charts": {
+            "palette": "dynamic",
+            "animation": {
+                "duration": 500,
+                "easing": "easeInOutQuad"
+            }
+        }
+    },
+    "layout": {
+        "type": "responsive_grid",
+        "columns": {
+            "xs": 1,
+            "sm": 2,
+            "md": 3,
+            "lg": 4
+        },
+        "spacing": 16
+    },
+    "header": {
+        "type": "adaptive",
+        "title": "Backup Analytics",
+        "subtitle": "Last updated: %last_update%",
+        "actions": [
+            {
+                "type": "date_range",
+                "default": "7d",
+                "options": ["24h", "7d", "30d", "custom"]
+            },
+            {
+                "type": "button",
+                "icon": "download",
+                "action": "exportData",
+                "tooltip": "Export Report"
+            }
+        ]
+    },
+    "sections": [
+        {
+            "type": "overview",
+            "title": "Performance Overview",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "metrics_grid",
+                "columns": 2,
+                "metrics": [
+                    {
+                        "label": "Total Files",
+                        "value": "%total_files%",
+                        "trend": {
+                            "value": "%files_trend%",
+                            "type": "percentage"
+                        },
+                        "chart": "spark_line"
+                    },
+                    {
+                        "label": "Total Size",
+                        "value": "%total_size%",
+                        "trend": {
+                            "value": "%size_trend%",
+                            "type": "percentage"
+                        },
+                        "chart": "spark_line"
+                    },
+                    {
+                        "label": "Success Rate",
+                        "value": "%success_rate%",
+                        "trend": {
+                            "value": "%success_trend%",
+                            "type": "percentage"
+                        },
+                        "chart": "spark_line"
+                    },
+                    {
+                        "label": "Avg Speed",
+                        "value": "%avg_speed%",
+                        "trend": {
+                            "value": "%speed_trend%",
+                            "type": "percentage"
+                        },
+                        "chart": "spark_line"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "backup_speed",
+            "title": "Backup Speed Over Time",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "time_series",
+                "data": {
+                    "source": "getSpeedHistory()",
+                    "refresh": 60000
+                },
+                "chart": {
+                    "type": "line",
+                    "options": {
+                        "xAxis": {
+                            "type": "time",
+                            "timeUnit": "hour"
+                        },
+                        "yAxis": {
+                            "label": "MB/s",
+                            "min": 0
+                        },
+                        "tooltip": {
+                            "enabled": true,
+                            "format": "detailed"
+                        },
+                        "annotations": {
+                            "average": true,
+                            "peaks": true
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "type": "file_types",
+            "title": "File Type Distribution",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "donut_chart",
+                "data": {
+                    "source": "getFileTypeStats()",
+                    "refresh": 300000
+                },
+                "options": {
+                    "legend": {
+                        "position": "bottom",
+                        "interactive": true
+                    },
+                    "tooltips": {
+                        "enabled": true,
+                        "format": "percentage"
+                    },
+                    "onClick": "filterByType"
+                }
+            }
+        },
+        {
+            "type": "error_analysis",
+            "title": "Error Analysis",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "error_breakdown",
+                "data": {
+                    "source": "getErrorStats()",
+                    "refresh": 300000
+                },
+                "display": {
+                    "type": "tree_map",
+                    "colorScale": "severity",
+                    "interactive": true,
+                    "drilldown": true
+                }
+            }
+        },
+        {
+            "type": "performance_metrics",
+            "title": "System Performance",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "multi_chart",
+                "data": {
+                    "source": "getPerformanceMetrics()",
+                    "refresh": 5000
+                },
+                "charts": [
+                    {
+                        "type": "area",
+                        "metric": "cpu",
+                        "label": "CPU Usage",
+                        "color": "primary",
+                        "thresholds": {
+                            "warning": 70,
+                            "critical": 90
+                        }
+                    },
+                    {
+                        "type": "area",
+                        "metric": "memory",
+                        "label": "Memory Usage",
+                        "color": "secondary",
+                        "thresholds": {
+                            "warning": 75,
+                            "critical": 90
+                        }
+                    },
+                    {
+                        "type": "area",
+                        "metric": "network",
+                        "label": "Network Usage",
+                        "color": "tertiary",
+                        "thresholds": {
+                            "warning": 80,
+                            "critical": 95
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "backup_schedule",
+            "title": "Backup Schedule Analysis",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "heatmap",
+                "data": {
+                    "source": "getScheduleStats()",
+                    "refresh": 3600000
+                },
+                "options": {
+                    "xAxis": {
+                        "type": "time",
+                        "unit": "hour"
+                    },
+                    "yAxis": {
+                        "type": "category",
+                        "categories": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                    },
+                    "colorScale": {
+                        "type": "sequential",
+                        "domain": [0, 100]
+                    },
+                    "tooltip": {
+                        "enabled": true,
+                        "format": "detailed"
+                    },
+                    "onClick": "viewTimeSlot"
+                }
+            }
+        },
+        {
+            "type": "network_quality",
+            "title": "Network Quality Impact",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "scatter_plot",
+                "data": {
+                    "source": "getNetworkImpact()",
+                    "refresh": 300000
+                },
+                "options": {
+                    "xAxis": {
+                        "label": "Network Quality",
+                        "domain": [0, 100]
+                    },
+                    "yAxis": {
+                        "label": "Backup Speed (MB/s)",
+                        "domain": "auto"
+                    },
+                    "points": {
+                        "size": "fileSize",
+                        "color": "successRate"
+                    },
+                    "trend": {
+                        "show": true,
+                        "type": "polynomial"
+                    }
+                }
+            }
+        }
+    ],
+    "filters": {
+        "type": "filter_bar",
+        "position": "top",
+        "filters": [
+            {
+                "type": "multi_select",
+                "label": "File Types",
+                "field": "fileType",
+                "options": "dynamic"
+            },
+            {
+                "type": "range",
+                "label": "File Size",
+                "field": "fileSize",
+                "range": {
+                    "min": 0,
+                    "max": "auto",
+                    "step": "auto"
+                }
+            },
+            {
+                "type": "select",
+                "label": "Status",
+                "field": "status",
+                "options": [
+                    "All",
+                    "Completed",
+                    "Failed",
+                    "In Progress"
+                ]
+            }
+        ]
+    },
+    "export": {
+        "formats": [
+            {
+                "type": "pdf",
+                "label": "PDF Report",
+                "template": "detailed"
+            },
+            {
+                "type": "csv",
+                "label": "Raw Data (CSV)"
+            },
+            {
+                "type": "json",
+                "label": "JSON Data"
+            }
+        ]
+    },
+    "interactivity": {
+        "drill_down": {
+            "enabled": true,
+            "maxDepth": 3,
+            "transition": {
+                "type": "slide",
+                "duration": 300
+            }
+        },
+        "tooltips": {
+            "enabled": true,
+            "delay": 200,
+            "position": "pointer"
+        },
+        "zoom": {
+            "enabled": true,
+            "controls": true,
+            "extent": [0.5, 3]
+        }
+    },
+    "refresh": {
+        "auto": true,
+        "interval": 300000,
+        "manual": true
+    }
+}

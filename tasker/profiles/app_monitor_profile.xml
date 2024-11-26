@@ -1,0 +1,117 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<TaskerData>
+    <Profile sr="app_monitor_profile">
+        <cdate>1700579200000</cdate>
+        <id>6</id>
+        <nme>App Usage Monitor</nme>
+        
+        <!-- App State Monitoring -->
+        <Event sr="con0" ve="2">
+            <code>411</code>
+            <Str sr="arg0">com.android.</Str>
+            <Int sr="arg1" val="0"/>
+        </Event>
+
+        <!-- Task Links -->
+        <Enter sr="enter">
+            <code>547</code>
+            <target>task_app_handler</target>
+            <priority>8</priority>
+        </Enter>
+
+        <!-- App Categories -->
+        <AppCategories>
+            <Category>
+                <name>Gaming</name>
+                <patterns>
+                    <pattern>com.*.games</pattern>
+                    <pattern>com.unity.*</pattern>
+                    <pattern>com.epicgames.*</pattern>
+                </patterns>
+                <action>pause_backup</action>
+                <priority>lowest</priority>
+                <resumeDelay>300</resumeDelay>
+            </Category>
+            
+            <Category>
+                <name>Streaming</name>
+                <patterns>
+                    <pattern>com.netflix.*</pattern>
+                    <pattern>com.spotify.*</pattern>
+                    <pattern>com.youtube.*</pattern>
+                </patterns>
+                <action>throttle_backup</action>
+                <bandwidth>1MB</bandwidth>
+                <priority>low</priority>
+            </Category>
+            
+            <Category>
+                <name>Productivity</name>
+                <patterns>
+                    <pattern>com.microsoft.office.*</pattern>
+                    <pattern>com.google.docs</pattern>
+                </patterns>
+                <action>priority_backup</action>
+                <priority>high</priority>
+                <instantBackup>true</instantBackup>
+            </Category>
+
+            <Category>
+                <name>Camera</name>
+                <patterns>
+                    <pattern>com.android.camera</pattern>
+                    <pattern>com.*.camera</pattern>
+                </patterns>
+                <action>instant_backup</action>
+                <filters>
+                    <filter>image/*</filter>
+                    <filter>video/*</filter>
+                </filters>
+                <delay>0</delay>
+            </Category>
+        </AppCategories>
+
+        <!-- Resource Management -->
+        <ResourceManagement>
+            <cpuLimit>70</cpuLimit>
+            <memoryLimit>60</memoryLimit>
+            <networkLimit>50</networkLimit>
+            <monitoring>
+                <interval>5</interval>
+                <metrics>
+                    <metric>cpu</metric>
+                    <metric>memory</metric>
+                    <metric>network</metric>
+                </metrics>
+            </monitoring>
+        </ResourceManagement>
+
+        <!-- State Handling -->
+        <StateHandling>
+            <transitions>
+                <transition>
+                    <from>background</from>
+                    <to>foreground</to>
+                    <action>check_category</action>
+                </transition>
+                <transition>
+                    <from>foreground</from>
+                    <to>background</to>
+                    <action>restore_normal</action>
+                </transition>
+            </transitions>
+            <cooldown>30</cooldown>
+        </StateHandling>
+
+        <!-- Logging -->
+        <Logging>
+            <enabled>true</enabled>
+            <events>
+                <event>app_launch</event>
+                <event>app_exit</event>
+                <event>backup_adjustment</event>
+            </events>
+            <retention>7d</retention>
+        </Logging>
+    </Profile>
+</TaskerData>

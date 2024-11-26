@@ -1,0 +1,208 @@
+{
+    "type": "network_monitor_screen",
+    "theme": {
+        "type": "material_you",
+        "dynamicColors": true
+    },
+    "layout": {
+        "type": "responsive_grid",
+        "columns": {
+            "xs": 1,
+            "sm": 2,
+            "md": 3,
+            "lg": 4
+        }
+    },
+    "header": {
+        "title": "Network Monitor",
+        "subtitle": "Last updated: %last_update%",
+        "actions": [
+            {
+                "type": "button",
+                "icon": "refresh",
+                "action": "refreshMetrics"
+            },
+            {
+                "type": "button",
+                "icon": "tune",
+                "action": "showSettings"
+            }
+        ]
+    },
+    "sections": [
+        {
+            "type": "current_status",
+            "title": "Network Status",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "status_panel",
+                "metrics": [
+                    {
+                        "label": "Connection Type",
+                        "value": "%connection_type%",
+                        "icon": {
+                            "wifi": "wifi",
+                            "mobile": "signal_cellular_alt",
+                            "ethernet": "lan",
+                            "none": "wifi_off"
+                        }
+                    },
+                    {
+                        "label": "Signal Strength",
+                        "value": "%signal_strength%",
+                        "format": "signal_bars",
+                        "levels": 5
+                    },
+                    {
+                        "label": "Upload Speed",
+                        "value": "%upload_speed%",
+                        "format": "speed"
+                    },
+                    {
+                        "label": "Download Speed",
+                        "value": "%download_speed%",
+                        "format": "speed"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "performance_metrics",
+            "title": "Network Performance",
+            "span": { "xs": 1, "md": 2 },
+            "content": {
+                "type": "line_chart",
+                "data": {
+                    "source": "getNetworkMetrics()",
+                    "refresh": 1000,
+                    "window": "5m"
+                },
+                "series": [
+                    {
+                        "name": "Upload",
+                        "value": "upload_speed",
+                        "color": "primary"
+                    },
+                    {
+                        "name": "Download",
+                        "value": "download_speed",
+                        "color": "secondary"
+                    },
+                    {
+                        "name": "Latency",
+                        "value": "latency",
+                        "color": "error",
+                        "axis": "right"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "quality_metrics",
+            "title": "Connection Quality",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "metrics_grid",
+                "metrics": [
+                    {
+                        "label": "Packet Loss",
+                        "value": "%packet_loss%",
+                        "format": "percentage",
+                        "thresholds": {
+                            "warning": 2,
+                            "critical": 5
+                        }
+                    },
+                    {
+                        "label": "Jitter",
+                        "value": "%jitter%",
+                        "format": "ms",
+                        "thresholds": {
+                            "warning": 50,
+                            "critical": 100
+                        }
+                    },
+                    {
+                        "label": "Latency",
+                        "value": "%latency%",
+                        "format": "ms",
+                        "thresholds": {
+                            "warning": 100,
+                            "critical": 200
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "network_stability",
+            "title": "Connection Stability",
+            "span": { "xs": 1, "md": 1 },
+            "content": {
+                "type": "timeline",
+                "data": {
+                    "source": "getStabilityEvents()",
+                    "refresh": 5000,
+                    "window": "1h"
+                },
+                "events": {
+                    "disconnection": {
+                        "icon": "wifi_off",
+                        "color": "error"
+                    },
+                    "degradation": {
+                        "icon": "warning",
+                        "color": "warning"
+                    },
+                    "improvement": {
+                        "icon": "check_circle",
+                        "color": "success"
+                    }
+                }
+            }
+        }
+    ],
+    "actions": {
+        "fab": {
+            "icon": "speed",
+            "label": "Speed Test",
+            "action": "runSpeedTest"
+        },
+        "contextual": [
+            {
+                "label": "Reset Stats",
+                "icon": "restore",
+                "action": "resetStats"
+            },
+            {
+                "label": "Export Data",
+                "icon": "download",
+                "action": "exportData"
+            }
+        ]
+    },
+    "settings": {
+        "refresh": {
+            "enabled": true,
+            "interval": 1000
+        },
+        "thresholds": {
+            "speed": {
+                "warning": 1,
+                "critical": 0.5
+            },
+            "quality": {
+                "warning": 50,
+                "critical": 30
+            }
+        },
+        "notifications": {
+            "enabled": true,
+            "events": [
+                "disconnection",
+                "quality_drop",
+                "speed_drop"
+            ]
+        }
+    }
+}
