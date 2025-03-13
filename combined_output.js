@@ -1,1499 +1,3189 @@
-// ==UserScript==
-// @name         Enhanced Image Collector with Persistence
-// @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Collect and view all images on a page with persistence support
-// @author       JLSmart13
-// @match        *://*/*
-// @icon         https://www.google.com/s2/favicons?sz=64&domain=github.com
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @grant        GM_deleteValue
-// @grant        GM_listValues
-// @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
-// ==/UserScript==
+  // Update counter
+  
 
-(function() {
-    'use strict';
+    // Update status counter
+    const counters = [
+      `${foundImages.length} media items found`,
+      methodText ? `(${methodText})` : '',
+      processedPageUrls.size > 1 ? `from ${processedPageUrls.size} pages` : ''
+    ].filter(Boolean).join(' ');
 
-    // Main UI elements
-    let galleryContainer;
-    let imageGrid;
-    let statusCounter;
-    let floatingButton;
-    let closeButton;
-    let downloadButton;
-    let crawlerButton;
-    let crawlerControls;
-    let pauseResumeButton;
-    let stopButton;
-
-    // Tracking variables
-    let processedPageUrls = new Set();
-    let processedImageUrls = new Set();
-    let pendingLinks = [];
-    let foundImages = [];
-    let imageGroups = new Map();
-    let isProcessing = false;
-    let isCrawlerActive = false;
-    let isCrawlerPaused = false;
-    let crawlerStartTime = null;
-    let lastProgressUpdate = null;
-    let crawlerStats = {
-        startTime: 0,
-        lastActive: 0,
-        pagesScanned: 0,
-        imagesFound: 0,
-        pendingLinksCount: 0,
-        domainsCrawled: new Set()
-    };
-
-    // Persistence tracking
-    let currentMethod = null;
-    let imageResolutionFailures = [];
-
-    // Initialize UI
-    function createUI() {
-        // Create floating button
-        floatingButton = document.createElement('button');
-        floatingButton.textContent = '🖼️';
-        floatingButton.title = 'Collect Images';
-        floatingButton.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 50px;
-            height: 50px;
-            border-radius: 25px;
-            background: #3498db;
-            color: white;
-            border: none;
-            font-size: 24px;
-            cursor: pointer;
-            z-index: 10000;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background-color 0.3s;
-            opacity: 0.8;
-        `;
-
-        floatingButton.addEventListener('mouseenter', () => {
-            floatingButton.style.opacity = '1';
-            floatingButton.style.backgroundColor = '#2980b9';
-        });
-
-        floatingButton.addEventListener('mouseleave', () => {
-            floatingButton.style.opacity = '0.8';
-            floatingButton.style.backgroundColor = '#3498db';
-        });
-
-        document.body.appendChild(floatingButton);
-
-        // Create gallery container
-        galleryContainer = document.createElement('div');
-        galleryContainer.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.9);
-            z-index: 10001;
-            display: none;
-            flex-direction: column;
-            padding: 20px;
-            box-sizing: border-box;
-            color: white;
-            font-family: Arial, sans-serif;
-        `;
-
-        // Add controls
-        const controlsDiv = document.createElement('div');
-        controlsDiv.className = 'gallery-controls';
-        controlsDiv.style.cssText = `
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-        `;
-
-        // Add title
-        const galleryTitle = document.createElement('h2');
-        galleryTitle.textContent = 'Images Found';
-        galleryTitle.style.margin = '0';
-        controlsDiv.appendChild(galleryTitle);
-
-        // Add buttons container
-        const buttonsDiv = document.createElement('div');
-        buttonsDiv.style.display = 'flex';
-        buttonsDiv.style.gap = '10px';
-        buttonsDiv.style.alignItems = 'center';
-        controlsDiv.appendChild(buttonsDiv);        // Create close button
-        closeButton = document.createElement('button');
-        closeButton.textContent = '✖️';
-        closeButton.title = 'Close Gallery';
-        closeButton.style.cssText = `
-            background: #e74c3c;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            padding: 5px 10px;
-            cursor: pointer;
-        `;
-        
-        closeButton.addEventListener('click', () => {
-            galleryContainer.style.display = 'none';
-        });
-        buttonsDiv.appendChild(closeButton);
-        
-        // Create download button
-        downloadButton = document.createElement('button');
-        downloadButton.textContent = '📥 Download All';
-        downloadButton.title = 'Download All Images as ZIP';
-        downloadButton.style.cssText = `
-            background: #2ecc71;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            padding: 5px 10px;
-            cursor: pointer;
-        `;
-        
-        downloadButton.addEventListener('click', downloadImagesAsZip);
-        buttonsDiv.appendChild(downloadButton);
-        
-        // Create crawler button
-        crawlerButton = document.createElement('button');
-        crawlerButton.textContent = '🕸️ Site Crawler';
-        crawlerButton.title = 'Crawl entire site for images';
-        crawlerButton.style.cssText = `
-            background: #9b59b6;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            padding: 5px 10px;
-            cursor: pointer;
-        `;
-        
-        buttonsDiv.appendChild(crawlerButton);
-        
-        galleryContainer.appendChild(controlsDiv);
-        
-        // Create crawler controls (hidden initially)
-        crawlerControls = document.createElement('div');
-        crawlerControls.style.cssText = `
-            margin-bottom: 15px;
-            display: none;
-            flex-wrap: wrap;
-            gap: 10px;
-            align-items: center;
-        `;
-        
-        // Create pause/resume button
-        pauseResumeButton = document.createElement('button');
-        pauseResumeButton.textContent = '⏸️ Pause';
-        pauseResumeButton.style.cssText = `
-            background: #f39c12;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            padding: 5px 10px;
-            cursor: pointer;
-        `;
-        
-        pauseResumeButton.addEventListener('click', () => {
-            if (isCrawlerPaused) {
-                resumeCrawler();
-            } else {
-                pauseCrawler();
-            }
-        });
-        
-        crawlerControls.appendChild(pauseResumeButton);
-        
-        // Create stop button
-        stopButton = document.createElement('button');
-        stopButton.textContent = '⏹️ Stop';
-        stopButton.style.cssText = `
-            background: #e74c3c;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            padding: 5px 10px;
-            cursor: pointer;
-        `;
-        
-        stopButton.addEventListener('click', () => {
-            if (confirm('Stop the crawler? Progress will be saved.')) {
-                isProcessing = false;
-                isCrawlerPaused = false;
-                isCrawlerActive = false;
-                updateCounter();
-                statusCounter.textContent += ' (Stopped)';
-                saveCrawlerState(); // Save state when stopping
-            }
-        });
-        
-        crawlerControls.appendChild(stopButton);
-        
-        // Create status counter for crawler
-        statusCounter = document.createElement('span');
-        statusCounter.style.cssText = `
-            font-size: 14px;
-            color: white;
-            margin-left: 10px;
-        `;
-        
-        crawlerControls.appendChild(statusCounter);
-        galleryContainer.appendChild(crawlerControls);
-        
-        // Create image grid
-        imageGrid = document.createElement('div');
-        imageGrid.style.cssText = `
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 10px;
-            overflow-y: auto;
-            padding: 10px;
-            flex: 1;
-        `;
-        
-        galleryContainer.appendChild(imageGrid);
-        document.body.appendChild(galleryContainer);
-    }    // Function to add an image to the gallery
-    function addImageToGallery(imageUrl, fullSizeUrl) {
-        if (!imageUrl) return;
-        
-        // Check if we already have this image
-        if (foundImages.includes(imageUrl)) return;
-        
-        // Add to the list of found images
-        foundImages.push(imageUrl);
-        
-        // Create group for full-size tracking
-        if (fullSizeUrl && fullSizeUrl !== imageUrl) {
-            // Create or update image group
-            if (!imageGroups.has(fullSizeUrl)) {
-                imageGroups.set(fullSizeUrl, new Set());
-            }
-            imageGroups.get(fullSizeUrl).add(imageUrl);
-        }
-        
-        // Create image container
-        const imgContainer = document.createElement('div');
-        imgContainer.className = 'gallery-img-container';
-        imgContainer.style.cssText = `
-            background: #333;
-            border-radius: 5px;
-            overflow: hidden;
-            position: relative;
-            aspect-ratio: 1/1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        `;
-        
-        // Create image element
-        const img = document.createElement('img');
-        img.loading = 'lazy';
-        img.style.cssText = `
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-            cursor: pointer;
-        `;
-        
-        // Show loading state
-        img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij48cGF0aCBmaWxsPSIjOTk5IiBkPSJNMTIgMjFhOSA5IDAgMSAxIDAtMTggOSA5IDAgMCAxIDAgMTh6bTAtMmE3IDcgMCAxIDAgMC0xNCA3IDcgMCAwIDAgMCAxNHoiIG9wYWNpdHk9Ii4zIi8+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTEyIDNhOSA5IDAgMCAxIDkgOWgtMmE3IDcgMCAwIDAtNy03VjN6Ij48YW5pbWF0ZVRyYW5zZm9ybSBhdHRyaWJ1dGVOYW1lPSJ0cmFuc2Zvcm0iIGF0dHJpYnV0ZVR5cGU9IlhNTCIgdHlwZT0icm90YXRlIiBmcm9tPSIwIDEyIDEyIiB0bz0iMzYwIDEyIDEyIiBkdXI9IjFzIiByZXBlYXRDb3VudD0iaW5kZWZpbml0ZSIvPjwvcGF0aD48L3N2Zz4=';
-        
-        // Set the source and add error handling
-        setTimeout(() => {
-            img.onerror = () => {
-                // Handle error - replace with placeholder
-                img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij48cGF0aCBmaWxsPSIjZTc0YzNjIiBkPSJNMTIgMjJDNi40NzcgMjIgMiAxNy41MjMgMiAxMlM2LjQ3NyAyIDEyIDJzMTAgNC40NzcgMTAgMTAtNC40NzcgMTAtMTAgMTB6bTAtMmE4IDggMCAxIDAgMC0xNiA4IDggMCAwIDAgMCAxNnptLTEtNWgyd1Y3aC0ydjh6bTAtMTBoMnYyaC0yVjV6Ii8+PC9zdmc+';
-                imgContainer.style.backgroundColor = '#433';
-            };
-            
-            img.onload = () => {
-                // Handle successful load
-                img.style.opacity = '1';
-            };
-            
-            // Set actual src after brief delay (helps with layout)
-            img.src = imageUrl;
-        }, 50);
-        
-        // Add image click to open full size
-        img.addEventListener('click', () => {
-            window.open(fullSizeUrl || imageUrl, '_blank');
-        });
-        
-        // Add image to container
-        imgContainer.appendChild(img);
-        
-        // Add size info
-        const sizeInfo = document.createElement('div');
-        sizeInfo.style.cssText = `
-            position: absolute;
-            bottom: 0;
-            right: 0;
-            background: rgba(0,0,0,0.7);
-            padding: 2px 5px;
-            font-size: 10px;
-        `;
-        
-        // Add info button
-        const infoButton = document.createElement('button');
-        infoButton.textContent = 'ℹ️';
-        infoButton.title = 'Image Information';
-        infoButton.style.cssText = `
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background: rgba(0,0,0,0.5);
-            color: white;
-            border: none;
-            border-radius: 3px;
-            width: 20px;
-            height: 20px;
-            font-size: 12px;
-            cursor: pointer;
-            padding: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        `;
-        
-        infoButton.addEventListener('click', (e) => {
-            e.stopPropagation();
-            // Show image info popup
-            showImageInfo(imageUrl, fullSizeUrl);
-        });
-        
-        imgContainer.appendChild(infoButton);
-        imgContainer.appendChild(sizeInfo);
-        
-        // Get image dimensions
-        const tempImg = new Image();
-        tempImg.onload = function() {
-            sizeInfo.textContent = `${this.width}×${this.height}`;
-        };
-        tempImg.src = imageUrl;        // Add the image container to the grid
-        imageGrid.appendChild(imgContainer);
-        
-        // Update counter
-        updateCounter();
-    }
+    statusCounter.textContent = counters;
+  }
+  
+  // Specialized crawler for anonib.pk
+  async function startAnonibCrawler() {
+    // Update status
+    statusCounter.textContent = "Starting AnonIB crawler...";
     
-    // Show image info popup
-    function showImageInfo(imageUrl, fullSizeUrl) {
-        const popup = document.createElement('div');
-        popup.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #333;
-            padding: 20px;
-            border-radius: 5px;
-            z-index: 10003;
-            max-width: 90%;
-            width: 500px;
-            color: white;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-        `;
-        
-        // Create close button
-        const closePopup = document.createElement('button');
-        closePopup.textContent = '✖';
-        closePopup.style.cssText = `
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: transparent;
-            color: white;
-            border: none;
-            font-size: 16px;
-            cursor: pointer;
-        `;
-        
-        closePopup.onclick = () => {
-            document.body.removeChild(popup);
-        };
-        
-        // Create content
-        let content = `
-            <h3 style="margin-top:0">Image Information</h3>
-            <div style="margin-bottom:15px">
-                <img src="${imageUrl}" style="max-width:100%; max-height:200px; margin-bottom:10px; background:#222;">
-                <div style="overflow-wrap:break-word; font-size:12px;">
-                    <strong>URL:</strong> ${imageUrl}
-                </div>
-            </div>
-        `;
-        
-        // Add full size info if different
-        if (fullSizeUrl && fullSizeUrl !== imageUrl) {
-            content += `
-                <div style="margin-bottom:15px">
-                    <strong>Full Size URL:</strong>
-                    <div style="overflow-wrap:break-word; font-size:12px;">${fullSizeUrl}</div>
-                </div>
-            `;
-        }
-        
-        // Add buttons
-        content += `
-            <div style="display:flex; gap:10px; margin-top:15px;">
-                <button id="copyImgUrl" style="flex:1; padding:5px; background:#3498db; color:white; border:none; border-radius:3px; cursor:pointer;">
-                    Copy URL
-                </button>
-                <button id="openImgUrl" style="flex:1; padding:5px; background:#2ecc71; color:white; border:none; border-radius:3px; cursor:pointer;">
-                    Open Image
-                </button>
-            </div>
-        `;
-        
-        popup.innerHTML = content;
-        popup.appendChild(closePopup);
-        document.body.appendChild(popup);
-        
-        // Add button functionality
-        document.getElementById('copyImgUrl').addEventListener('click', () => {
-            const urlToCopy = fullSizeUrl || imageUrl;
-            navigator.clipboard.writeText(urlToCopy).then(() => {
-                const btn = document.getElementById('copyImgUrl');
-                const originalText = btn.textContent;
-                btn.textContent = 'Copied!';
-                setTimeout(() => {
-                    btn.textContent = originalText;
-                }, 1000);
-            });
-        });
-        
-        document.getElementById('openImgUrl').addEventListener('click', () => {
-            window.open(fullSizeUrl || imageUrl, '_blank');
-        });
-        
-        // Add key handlers
-        const handleKeyDown = (e) => {
-            if (e.key === 'Escape') {
-                document.body.removeChild(popup);
-                document.removeEventListener('keydown', handleKeyDown);
-            }
-        };
-        document.addEventListener('keydown', handleKeyDown);
-    }
-    
-    // Placeholder creator
-    function createImagePlaceholder(id) {
-        const imgContainer = document.createElement('div');
-        imgContainer.id = id;
-        imgContainer.className = 'gallery-img-container placeholder';
-        imgContainer.style.cssText = `
-            background: #444;
-            border-radius: 5px;
-            overflow: hidden;
-            position: relative;
-            aspect-ratio: 1/1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        `;
-        
-        // Add loading spinner
-        imgContainer.innerHTML = `
-            <div style="width:32px; height:32px;">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%">
-                    <circle cx="12" cy="12" r="10" fill="none" stroke="#999" stroke-width="2" opacity="0.3"/>
-                    <path fill="#fff" d="M12 2a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8V2z">
-                        <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
-                    </path>
-                </svg>
-            </div>
-        `;        // Add to the grid
-        imageGrid.appendChild(imgContainer);
-        return imgContainer;
-    }
-    
-    // Update placeholder with actual image
-    function updateOrAddImageInGallery(originalUrl, fullSizeUrl, placeholderId) {
-        if (!originalUrl) return;
-        
-        // If placeholder exists, update it
-        if (placeholderId) {
-            const placeholder = document.getElementById(placeholderId);
-            if (placeholder) {
-                // Remove placeholder from the DOM
-                placeholder.parentNode.removeChild(placeholder);
-            }
-        }
-        
-        // Add the image to gallery
-        addImageToGallery(originalUrl, fullSizeUrl);
-        
-        // Save images if persistence is enabled
-        if (currentMethod) {
-            saveCrawlerState();
-        }
-    }
-    
-    // Update the counter display
-    function updateCounter() {
-        if (!statusCounter) return;
-        
-        // Create method indicator if needed
-        let methodText = '';
-        if (currentMethod) {
-            methodText = currentMethod === 'standard' ? 'Standard Mode' : 'Crawler Mode';
-        }
-        
-        // Update status counter
-        const counters = [
-            `${foundImages.length} images found`,
-            methodText ? `(${methodText})` : '',
-            processedPageUrls.size > 1 ? `from ${processedPageUrls.size} pages` : ''
-        ].filter(Boolean).join(' ');
-        
-        statusCounter.textContent = counters;
-    }
-    
-    // Function to download all images as a ZIP file
-    function downloadImagesAsZip() {
-        // Create a new JSZip instance
-        const zip = new JSZip();
-        let processed = 0;
-        let failed = 0;
-        let totalSize = 0;
-        
-        // Create progress popup
-        const popup = document.createElement('div');
-        popup.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #333;
-            padding: 20px;
-            border-radius: 5px;
-            z-index: 10003;
-            width: 300px;
-            color: white;
-            text-align: center;
-        `;
-        
-        popup.innerHTML = `
-            <h3>Preparing Download...</h3>
-            <div id="zipProgress" style="width:100%; height:20px; background:#555; border-radius:10px; overflow:hidden; margin:15px 0;">
-                <div id="zipProgressBar" style="height:100%; width:0%; background:#3498db; transition:width 0.3s;"></div>
-            </div>
-            <div id="zipStatus">Fetching images... (0/${foundImages.length})</div>
-        `;
-        
-        document.body.appendChild(popup);
-        
-        // Update progress display
-        const updateProgress = () => {
-            const total = foundImages.length;
-            const progress = (processed + failed) / total * 100;
-            document.getElementById('zipProgressBar').style.width = `${progress}%`;
-            document.getElementById('zipStatus').textContent = 
-                `Fetching images... (${processed + failed}/${total}) - ${failed} failed - ${(totalSize / (1024 * 1024)).toFixed(1)}MB`;
-        };
-        
-        // Process URLs and add to ZIP
-        const processUrls = async () => {
-            // Get all unique full-size URLs to download
-            const urlsToDownload = new Set();
-            
-            // Add all found images
-            foundImages.forEach(url => urlsToDownload.add(url));
-            
-            // For each group, keep only the full-size URL
-            imageGroups.forEach((variants, fullSizeUrl) => {
-                // Remove all variants from download list
-                variants.forEach(url => urlsToDownload.delete(url));
-                // Add the full-size version
-                urlsToDownload.add(fullSizeUrl);
-            });
-            
-            // Convert to array for processing
-            const allUrls = [...urlsToDownload];
-            
-            // Process each URL
-            for (const url of allUrls) {
-                try {
-                    // Get the image data
-                    const response = await fetch(url, {credentials: 'omit'});
-                    if (response.ok) {
-                        const blob = await response.blob();
-                        totalSize += blob.size;
-                        
-                        // Create a unique filename
-                        const filename = getUniqueFilename(url);
-                        
-                        // Add to zip
-                        zip.file(filename, blob);
-                        processed++;
-                    } else {
-                        failed++;
-                    }
-                } catch (error) {
-                    console.error('Error downloading image:', error);
-                    failed++;
-                }
-                
-                // Update progress
-                updateProgress();
-            }
-        };        // Start processing images
-        processUrls().then(() => {
-            // Done fetching all images, generate ZIP
-            if (processed > 0) {
-                // Update status
-                document.getElementById('zipStatus').textContent = 'Generating ZIP file...';
-                
-                // Generate the ZIP
-                zip.generateAsync({
-                    type: 'blob',
-                    compression: 'DEFLATE',
-                    compressionOptions: { level: 6 }
-                }).then(content => {
-                    // Create download link
-                    const a = document.createElement('a');
-                    const url = URL.createObjectURL(content);
-                    a.href = url;
-                    
-                    // Set filename with date/time
-                    const now = new Date();
-                    const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-                    const domain = getDomain(window.location.href);
-                    
-                    a.download = `images_${domain}_${timestamp}.zip`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                    
-                    // Update completion status
-                    document.getElementById('zipStatus').innerHTML = `
-                        <span style="color:#2ecc71">✓ ${processed} images downloaded (${(totalSize / (1024 * 1024)).toFixed(1)}MB)</span>
-                        ${failed > 0 ? `<br><span style="color:#e74c3c">✗ ${failed} images failed</span>` : ''}
-                        <br><br><button id="closeZipPopup" style="background:#3498db; border:none; color:white; padding:5px 15px; border-radius:3px; cursor:pointer">Close</button>
-                    `;
-                    
-                    // Add close button functionality
-                    document.getElementById('closeZipPopup').onclick = () => {
-                        document.body.removeChild(popup);
-                    };
-                });
-            } else {
-                // No images could be downloaded
-                document.getElementById('zipStatus').innerHTML = `
-                    <span style="color:#e74c3c">✗ No images could be downloaded</span>
-                    <br><br><button id="closeZipPopup" style="background:#3498db; border:none; color:white; padding:5px 15px; border-radius:3px; cursor:pointer">Close</button>
-                `;
-                
-                document.getElementById('closeZipPopup').onclick = () => {
-                    document.body.removeChild(popup);
-                };
-            }
-        });
-    }
-    
-    // Generate a unique filename for an image URL
-    function getUniqueFilename(url) {
-        try {
-            // Parse URL
-            const parsedUrl = new URL(url);
-            // Get the pathname
-            let pathname = parsedUrl.pathname;
-            
-            // Extract filename from path
-            let filename = pathname.split('/').pop();
-            
-            // If no filename or no extension, create one
-            if (!filename || !filename.includes('.')) {
-                // Get extension from content type or default to jpg
-                const ext = url.match(/\.([a-z0-9]{3,4})(?:$|\?)/i) ? 
-                    url.match(/\.([a-z0-9]{3,4})(?:$|\?)/i)[1] : 'jpg';
-                
-                // Create filename from URL parts
-                const domain = parsedUrl.hostname.replace(/www\./i, '');
-                const hash = Math.random().toString(36).substring(2, 10);
-                filename = `${domain}_${hash}.${ext}`;
-            }
-            
-            // Sanitize filename
-            filename = filename.replace(/[/\\?%*:|"<>\s]/g, '_')
-                               .replace(/[&=]/g, '_')
-                               .toLowerCase();
-            
-            // Add random suffix if needed
-            if (filename.length > 50) {
-                const ext = filename.split('.').pop();
-                filename = filename.substring(0, 40) + '_' + 
-                          Math.random().toString(36).substring(2, 7) + 
-                          '.' + ext;
-            }
-            
-            return filename;
-        } catch (e) {
-            // Fallback for invalid URLs
-            return `image_${Math.random().toString(36).substring(2, 10)}.jpg`;
-        }
-    }
-    
-    // Get the domain from a URL
-    function getDomain(url) {
-        try {
-            const parsedUrl = new URL(url);
-            return parsedUrl.hostname.replace(/www\./i, '');
-        } catch (e) {
-            return 'unknown';
-        }
-    }    // Function to check if a URL might be an image
-    function isImageUrl(url) {
-        // Check file extension
-        const extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.tiff'];
-        const lowerUrl = url.toLowerCase();
-        
-        // Check for known file extensions in URL
-        for (const ext of extensions) {
-            if (lowerUrl.endsWith(ext) || lowerUrl.includes(ext + '?')) {
-                return true;
-            }
-        }
-        
-        // Check for image patterns in URL
-        const imagePatterns = [
-            /\/image\//i, /\/img\//i, /\/thumb(nail)?s?\//i, 
-            /\/photos?\//i, /\/pictures?\//i
-        ];
-        
-        for (const pattern of imagePatterns) {
-            if (pattern.test(url)) {
-                return true;
-            }
-        }
-        
-        return false;
-    }
-    
-    // Get the base name of an image (for comparison)
-    function getImageBaseName(url) {
-        try {
-            // Get just the filename from the URL
-            const filename = url.split('/').pop().split('?')[0];
-            
-            // Remove extension
-            const baseName = filename.replace(/\.[^.]+$/, '');
-            
-            // Remove common suffixes like _thumb, -small, etc.
-            return baseName.replace(/_(?:thumb|small|medium|large|[0-9]+px)$/, '')
-                          .replace(/-(?:thumb|small|medium|large|[0-9]+px)$/, '');
-        } catch (e) {
-            return '';
-        }
-    }
-    
-    // Check if two URLs are on the same domain
-    function isSameDomain(url1, url2) {
-        try {
-            const domain1 = new URL(url1).hostname;
-            const domain2 = new URL(url2).hostname;
-            return domain1 === domain2;
-        } catch (e) {
-            return false;
-        }
-    }
-    
-    // Log image resolution failures for debugging
-    function logImageResolutionFailure(originalImage, sourcePage, pathFollowed, error) {
-        // Create failure entry
-        const failure = {
-            originalImage,
-            sourcePage,
-            pathFollowed: pathFollowed || [],
-            error: error || 'Unknown error',
-            timestamp: Date.now()
-        };
-        
-        // Add to failures list
-        imageResolutionFailures.push(failure);
-        
-        // Save to storage if method is set
-        if (currentMethod) {
-            const logKey = `${getStorageKeyPrefix()}${currentMethod}_resolutionFailures`;
-            saveToStorage(logKey, imageResolutionFailures);
-        }
-        
-        // Show the failure log button if it exists
-        if (window.failureLogButton) {
-            window.failureLogButton.style.display = 'inline-block';
-        }
-        
-        console.warn('Image resolution failure:', failure);
-    }
-    
-    // Function to attempt to resolve a full-size image URL
-    async function attemptToResolveFullSizeImage(imageUrl, pageUrl) {
-        const result = {
-            originalUrl: imageUrl,
-            fullSizeUrl: imageUrl,
-            success: false
-        };
-        
-        // Maximum path length to follow
-        const maxPathLength = 3;
-        
-        // Skip resolution if URL contains indicators it's already full-size
-        const lowerUrl = imageUrl.toLowerCase();
-        const fullSizeIndicators = ['full', 'original', 'large', 'high', 'orig', 'max'];
-        
-        for (const indicator of fullSizeIndicators) {
-            if (lowerUrl.includes(indicator)) {
-                result.success = true;
-                return result;
-            }
-        }
-        
-        // Path tracking for failure logging
-        const pathFollowed = [];
-        
-        try {
-            // Try modification patterns first (fastest)
-            const modificationPatterns = [
-                // Replace thumb indicators with full-size indicators
-                { from: /(_|\-)(?:thumb|small|thumbnail|s|t)\./i, to: '.' },
-                { from: /(_|\-)(?:thumb|small|thumbnail|s|t)(_|\-)/i, to: '$2' },
-                { from: /_\d{2,3}x\d{2,3}\./i, to: '.' },
-                
-                // Replace size indicators with larger ones
-                { from: /(_|\-)(?:medium|m)(_|\-|\.)/, to: '$1large$2' },
-                { from: /(_|\-)[sm](_|\-|\.)/, to: '$1l$2' },
-                { from: /\/(?:thumb|small|thumbnails)\//i, to: '/large/' },
-                { from: /\/(?:thumb|small|thumbnails)\//i, to: '/original/' },
-                
-                // Common size patterns in URLs
-                { from: /\b(\d{2,3})x(\d{2,3})\b/i, to: '1200x1200' },
-                { from: /[_-]w(\d{2,3})[_-]/i, to: '_w1200_' },
-                { from: /[_-]h(\d{2,3})[_-]/i, to: '_h1200_' },
-                
-                // Common specific hosting site patterns
-                { from: /\/(?\:thumbs|t)(\d+)\./, to: '/i$1.' }, // imgur pattern
-                { from: /\?size=\w+$/, to: '' }                 // remove size parameters
-            ];
-            
-            // Try each pattern
-            for (const pattern of modificationPatterns) {
-                if (pattern.from.test(imageUrl)) {
-                    const modifiedUrl = imageUrl.replace(pattern.from, pattern.to);
-                    
-                    // Track this attempt
-                    pathFollowed.push({
-                        type: 'URL Pattern Modification',
-                        url: modifiedUrl,
-                        followed: true
-                    });                    // Check if the modified URL works
-                    try {
-                        const response = await fetch(modifiedUrl, { method: 'HEAD', credentials: 'omit' });
-                        if (response.ok) {
-                            const contentType = response.headers.get('Content-Type');
-                            if (contentType && contentType.startsWith('image/')) {
-                                result.fullSizeUrl = modifiedUrl;
-                                result.success = true;
-                                return result;
-                            }
-                        }
-                    } catch (e) {
-                        // Pattern didn't work, try next one
-                    }
-                }
-            }
-            
-            // Next, check if image is in a container page
-            if (mightBeImageContainer(imageUrl)) {
-                // Log this attempt
-                pathFollowed.push({
-                    type: 'Image Container Check',
-                    url: imageUrl,
-                    followed: true
-                });
-                
-                try {
-                    // Try to fetch the page
-                    const response = await fetch(imageUrl, { credentials: 'omit' });
-                    if (response.ok) {
-                        const html = await response.text();
-                        
-                        // Look for high-resolution images in the HTML
-                        const possibleFullSizeUrls = extractPossibleFullSizeImageUrls(
-                            html, imageUrl, imageUrl
-                        );
-                        
-                        // Find the best match
-                        if (possibleFullSizeUrls.length > 0) {
-                            const bestMatch = selectBestImageUrl(possibleFullSizeUrls);
-                            
-                            if (bestMatch) {
-                                result.fullSizeUrl = bestMatch;
-                                result.success = true;
-                                return result;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // Container page approach didn't work
-                }
-            }
-            
-            // Also check the source page for better versions
-            if (pageUrl && pageUrl !== imageUrl) {
-                // Log this attempt
-                pathFollowed.push({
-                    type: 'Source Page Check',
-                    url: pageUrl,
-                    followed: true
-                });
-                
-                try {
-                    // Try to fetch the page
-                    const response = await fetch(pageUrl, { credentials: 'omit' });
-                    if (response.ok) {
-                        const html = await response.text();
-                        
-                        // Look for high-resolution versions of this image
-                        const possibleFullSizeUrls = extractPossibleFullSizeImageUrls(
-                            html, pageUrl, imageUrl
-                        );
-                        
-                        // Find the best match
-                        if (possibleFullSizeUrls.length > 0) {
-                            const bestMatch = selectBestImageUrl(possibleFullSizeUrls);
-                            
-                            if (bestMatch) {
-                                result.fullSizeUrl = bestMatch;
-                                result.success = true;
-                                return result;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // Source page approach didn't work
-                }
-            }
-            
-            // If all attempts failed, use the original URL
-            return result;
-            
-        } catch (e) {
-            // Log the failure
-            logImageResolutionFailure(imageUrl, pageUrl, pathFollowed, e.message);
-            return result;
-        }
-    }
-    
-    // Create failure log button
-    function createFailureLogButton() {
-        // Create button
-        window.failureLogButton = document.createElement('button');
-        window.failureLogButton.textContent = '⚠️ Resolution Failures';
-        window.failureLogButton.title = 'Show image resolution failures';
-        window.failureLogButton.style.cssText = `
-            background: #e67e22;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            padding: 5px 10px;
-            cursor: pointer;
-            display: none;
-            margin-left: 10px;
-        `;
-        
-        window.failureLogButton.addEventListener('click', showImageResolutionFailures);
-        
-        // Add to crawler controls
-        if (crawlerControls) {
-            crawlerControls.appendChild(window.failureLogButton);
-        }
-    }
-    
-    // Show image resolution failures
-    function showImageResolutionFailures() {
-        // Create popup
-        const popup = document.createElement('div');
-        popup.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #333;
-            padding: 20px;
-            border-radius: 5px;
-            z-index: 10003;
-            width: 80%;
-            max-width: 800px;
-            height: 80%;
-            max-height: 600px;
-            color: white;
-            overflow: auto;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-        `;
-        
-        // Add close button
-        const closeButton = document.createElement('button');
-        closeButton.textContent = '✖';
-        closeButton.style.cssText = `
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: transparent;
-            color: white;
-            border: none;
-            font-size: 16px;
-            cursor: pointer;
-        `;
-        
-        closeButton.addEventListener('click', () => {
-            document.body.removeChild(popup);
-        });
-        
-        popup.appendChild(closeButton);
-        
-        // Create content
-        const content = document.createElement('div');
-        
-        // Add header
-        content.innerHTML = `
-            <h3>Image Resolution Failures (${imageResolutionFailures.length})</h3>
-            <div style="margin-bottom:15px;">
-                These are images where high-resolution versions could not be found.
-            </div>
-        `;
-        
-        // Add each failure
-        for (const failure of imageResolutionFailures) {
-            const failureEntry = document.createElement('div');
-            failureEntry.style.cssText = `
-                margin-bottom: 20px;
-                padding: 10px;
-                background: #444;
-                border-radius: 5px;
-            `;
-            
-            // Format timestamp
-            const date = new Date(failure.timestamp);
-            const timeStr = date.toLocaleString();
-            
-            // Create entry HTML
-            failureEntry.innerHTML = `
-                <div style="margin-bottom:5px;">
-                    <strong>Original Image:</strong>
-                    <a href="${failure.originalImage}" target="_blank" style="color:#3498db; word-break:break-all;">${failure.originalImage}</a>
-                </div>
-                <div style="margin-bottom:5px;">
-                    <strong>Source Page:</strong>
-                    <a href="${failure.sourcePage}" target="_blank" style="color:#3498db; word-break:break-all;">${failure.sourcePage}</a>
-                </div>
-                <div style="margin-bottom:5px;">
-                    <strong>Error:</strong> <span style="color:#e74c3c;">${failure.error}</span>
-                </div>
-                <div style="margin-bottom:5px;">
-                    <strong>Time:</strong> ${timeStr}
-                </div>
-                <div style="margin-top:10px;">
-                    <button class="show-path-btn" style="background:#7f8c8d; color:white; border:none; border-radius:3px; padding:3px 8px; cursor:pointer;">
-                        Show Resolution Path
-                    </button>
-                    <div class="path-details" style="display:none; margin-top:10px; padding:5px; background:#555; border-radius:3px; font-size:12px;"></div>
-                </div>
-            `;
-            
-            content.appendChild(failureEntry);
-            
-            // Add path button functionality
-            const pathBtn = failureEntry.querySelector('.show-path-btn');
-            const pathDetails = failureEntry.querySelector('.path-details');
-            
-            pathBtn.addEventListener('click', () => {
-                // Toggle visibility
-                const isHidden = pathDetails.style.display === 'none';
-                pathDetails.style.display = isHidden ? 'block' : 'none';
-                pathBtn.textContent = isHidden ? 'Hide Resolution Path' : 'Show Resolution Path';
-                
-                // Only build path details once
-                if (isHidden && pathDetails.children.length === 0 && failure.pathFollowed) {
-                    // Create path steps
-                    let pathHTML = '<ol style="margin:0; padding-left:20px;">';
-                    
-                    for (const step of failure.pathFollowed) {
-                        pathHTML += `
-                            <li style="margin-bottom:5px;">
-                                <div><strong>${step.type}:</strong></div>
-                                <div style="word-break:break-all;">${step.url}</div>
-                                <div style="color:${step.followed ? '#2ecc71' : '#e74c3c'}; font-style:italic;">
-                                    ${step.followed ? '✓ Attempted' : '✗ Skipped'}
-                                </div>
-                            </li>
-                        `;
-                    }
-                    
-                    pathHTML += '</ol>';
-                    pathDetails.innerHTML = pathHTML;
-                }
-            });
-        }
-        
-        // Add clear button
-        const clearButton = document.createElement('button');
-        clearButton.textContent = '🗑️ Clear All Failures';
-        clearButton.style.cssText = `
-            background: #e74c3c;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            padding: 5px 10px;
-            cursor: pointer;
-            margin-top: 20px;
-        `;
-        
-        clearButton.addEventListener('click', () => {
-            if (confirm('Clear all resolution failures? This cannot be undone.')) {
-                imageResolutionFailures = [];
-                
-                // Save empty array to storage
-                if (currentMethod) {
-                    const logKey = `${getStorageKeyPrefix()}${currentMethod}_resolutionFailures`;
-                    saveToStorage(logKey, []);
-                }
-                
-                // Hide failure log button
-                if (window.failureLogButton) {
-                    window.failureLogButton.style.display = 'none';
-                }
-                
-                // Close the popup
-                document.body.removeChild(popup);
-            }
-        });
-        // Add main click handler for floating button
-floatingButton.addEventListener('click', () => {
-    if (galleryContainer.style.display === 'none') {
-        showGallery();
-    }
-});
-
-// Add crawler button click handler
-crawlerButton.addEventListener('click', () => {
-    if (!isCrawlerActive) {
-        startCrawler();
-    }
-    crawlerControls.style.display = 'flex';
-});
-
-// Start the crawler
-async function startCrawler() {
-    isCrawlerActive = true;
-    isCrawlerPaused = false;
-    crawlerStartTime = Date.now();
+    // Initialize crawler stats
     crawlerStats.startTime = Date.now();
-    
-    // Initialize with current page
-    pendingLinks = [window.location.href];
-    crawlerStats.domainsCrawled.add(new URL(window.location.href).hostname);
-    
-    // Start processing
-    processNextLink();
-}
-
-// Process next link in queue
-async function processNextLink() {
-    if (!isCrawlerActive || isCrawlerPaused || pendingLinks.length === 0) {
-        return;
-    }
-    
-    const nextLink = pendingLinks.shift();
-    if (!processedPageUrls.has(nextLink)) {
-        try {
-            const response = await fetch(nextLink);
-            const html = await response.text();
-            const doc = new DOMParser().parseFromString(html, 'text/html');
-            
-            // Process images
-            const images = doc.querySelectorAll('img');
-            images.forEach(img => {
-                const imageUrl = img.src;
-                if (!processedImageUrls.has(imageUrl)) {
-                    processedImageUrls.add(imageUrl);
-                    addImageToGallery(imageUrl);
-                }
-            });
-            
-            // Add new links to queue
-            const links = doc.querySelectorAll('a');
-            links.forEach(link => {
-                const href = link.href;
-                if (isSameDomain(href, window.location.href) && !processedPageUrls.has(href)) {
-                    pendingLinks.push(href);
-                }
-            });
-            
-            processedPageUrls.add(nextLink);
-            crawlerStats.pagesScanned++;
-            updateCounter();
-        } catch (error) {
-            console.error('Error processing link:', error);
-        }
-    }
-    
-    // Continue processing
-    if (isCrawlerActive && !isCrawlerPaused) {
-        setTimeout(processNextLink, 500); // Rate limiting
-    }
-}
-
-// Pause crawler
-function pauseCrawler() {
-    isCrawlerPaused = true;
-    pauseResumeButton.textContent = '▶️ Resume';
+    crawlerStats.pagesScanned = 0;
+    crawlerStats.imagesFound = 0;
     crawlerStats.lastActive = Date.now();
-}
-
-// Resume crawler
-function resumeCrawler() {
-    isCrawlerPaused = false;
-    pauseResumeButton.textContent = '⏸️ Pause';
-    processNextLink();
-}
-// Get storage key prefix
-function getStorageKeyPrefix() {
-    return `imgCollector_${window.location.hostname}_`;
-}
-
-// Save to storage
-function saveToStorage(key, value) {
+    
     try {
-        GM_setValue(key, JSON.stringify(value));
-    } catch (e) {
-        console.error('Error saving to storage:', e);
-    }
-}
-
-// Load from storage
-function loadFromStorage(key) {
-    try {
-        const value = GM_getValue(key);
-        return value ? JSON.parse(value) : null;
-    } catch (e) {
-        console.error('Error loading from storage:', e);
-        return null;
-    }
-}
-
-// Save crawler state
-function saveCrawlerState() {
-    if (!currentMethod) return;
-    
-    const state = {
-        processedPages: Array.from(processedPageUrls),
-        processedImages: Array.from(processedImageUrls),
-        pendingLinks: pendingLinks,
-        foundImages: foundImages,
-        imageGroups: Array.from(imageGroups.entries()),
-        stats: crawlerStats,
-        timestamp: Date.now()
-    };
-    
-    saveToStorage(`${getStorageKeyPrefix()}${currentMethod}_state`, state);
-}
-
-// Load crawler state
-function loadCrawlerState() {
-    if (!currentMethod) return;
-    
-    const state = loadFromStorage(`${getStorageKeyPrefix()}${currentMethod}_state`);
-    if (state) {
-        processedPageUrls = new Set(state.processedPages);
-        processedImageUrls = new Set(state.processedImages);
-        pendingLinks = state.pendingLinks;
-        foundImages = state.foundImages;
-        imageGroups = new Map(state.imageGroups);
-        crawlerStats = state.stats;
+      // Get current URL to determine if we're on a board or catalog page
+      const currentPath = window.location.pathname;
+      const catalogMatch = currentPath.match(/\/([^\/]+)\/catalog\.html/);
+      const boardMatch = currentPath.match(/\/([^\/]+)\/?$/);
+      
+      if (catalogMatch && catalogMatch[1]) {
+        // We're on a catalog page - just process this board
+        const boardName = catalogMatch[1];
         
-        // Restore images to gallery
-        foundImages.forEach(url => {
-            const fullSizeUrl = Array.from(imageGroups.entries())
-                .find(([, variants]) => variants.has(url))?.[0] || url;
-            addImageToGallery(url, fullSizeUrl);
+        // Create board entry in hierarchy
+        if (!imageHierarchy.boards.has(boardName)) {
+          imageHierarchy.boards.set(boardName, new Map());
+        }
+        
+        // Process this board
+        await processAnonibBoard(boardName);
+      } 
+      else if (boardMatch && boardMatch[1] && boardMatch[1].length > 0 && !currentPath.includes('/res/')) {
+        // We're on a board index page - just process this board
+        const boardName = boardMatch[1];
+        
+        // Create board entry in hierarchy
+        if (!imageHierarchy.boards.has(boardName)) {
+          imageHierarchy.boards.set(boardName, new Map());
+        }
+        
+        // Process this board
+        await processAnonibBoard(boardName);
+      }
+      else if (currentPath.includes('/res/')) {
+        // We're on a thread page - extract board name and thread id
+        const threadMatch = currentPath.match(/\/([^\/]+)\/res\/(\d+)\.html/);
+        
+        if (threadMatch && threadMatch[1] && threadMatch[2]) {
+          const boardName = threadMatch[1];
+          const threadId = threadMatch[2];
+          
+          // Create board entry in hierarchy
+          if (!imageHierarchy.boards.has(boardName)) {
+            imageHierarchy.boards.set(boardName, new Map());
+          }
+          
+          // Get thread title
+          let threadTitle = '';
+          const subjectElement = document.querySelector('.innerOP .labelSubject');
+          if (subjectElement && subjectElement.textContent.trim()) {
+            threadTitle = subjectElement.textContent.trim();
+          } else {
+            const messageElement = document.querySelector('.innerOP .divMessage');
+            if (messageElement && messageElement.textContent.trim()) {
+              threadTitle = messageElement.textContent.trim();
+              // Truncate long message titles
+              if (threadTitle.length > 50) {
+                threadTitle = threadTitle.substring(0, 47) + '...';
+              }
+            }
+          }
+          
+          if (!threadTitle) {
+            threadTitle = `Thread #${threadId}`;
+          }
+          
+          // Initialize thread data
+          const boardThreads = imageHierarchy.boards.get(boardName);
+          boardThreads.set(threadId, {
+            title: threadTitle,
+            url: window.location.href,
+            images: [],
+            videos: []
+          });
+          
+          // Process images directly from the DOM on this page
+          const imgLinks = document.querySelectorAll('a.imgLink');
+          
+          imgLinks.forEach(imgLink => {
+            const href = imgLink.getAttribute('href');
+            if (!href) return;
+            
+            const fullUrl = new URL(href, window.location.href).href;
+            
+            // Skip if already processed
+            if (processedImageUrls.has(fullUrl)) return;
+            
+            // Mark as processed
+            processedImageUrls.add(fullUrl);
+            
+            // Determine if it's an image or video
+            const mimeType = imgLink.getAttribute('data-filemime') || '';
+            const isVideo = mimeType.includes('video') || 
+                          fullUrl.match(/\.(mp4|webm|mov|avi|wmv|flv|mkv)$/i);
+            
+            const threadData = boardThreads.get(threadId);
+            
+            if (isVideo) {
+              if (!threadData.videos.includes(fullUrl)) {
+                threadData.videos.push(fullUrl);
+                
+                // Also add to global list
+                if (!foundImages.includes(fullUrl)) {
+                  foundImages.push(fullUrl);
+                }
+              }
+            } else {
+              if (!threadData.images.includes(fullUrl)) {
+                threadData.images.push(fullUrl);
+                
+                // Also add to global list
+                if (!foundImages.includes(fullUrl)) {
+                  foundImages.push(fullUrl);
+                }
+              }
+            }
+          });
+          
+          // Update crawler stats
+          crawlerStats.pagesScanned = 1;
+          crawlerStats.imagesFound = foundImages.length;
+        }
+      }
+      else {
+        // We're on the main page - find all boards
+        const response = await fetch(window.location.href, { credentials: 'omit' });
+        if (!response.ok) throw new Error("Failed to fetch main page");
+        
+        const html = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        
+        // Find all board links
+        const boardLinks = [];
+        const boardElements = doc.querySelectorAll('ul.list-boards a');
+        
+        boardElements.forEach(link => {
+          const href = link.getAttribute('href');
+          if (href && href.startsWith('/') && !href.includes('catalog.html')) {
+            const boardName = href.split('/')[1];
+            if (boardName) {
+              boardLinks.push({ url: href, name: boardName });
+            }
+          }
         });
         
-        updateCounter();
+        // Process each board
+        for (let i = 0; i < Math.min(5, boardLinks.length); i++) {
+          if (!isCrawlerActive) break;
+          
+          const boardData = boardLinks[i];
+          
+          // Create board entry in hierarchy if it doesn't exist
+          if (!imageHierarchy.boards.has(boardData.name)) {
+            imageHierarchy.boards.set(boardData.name, new Map());
+          }
+          
+          // Process this board
+          await processAnonibBoard(boardData.name);
+          
+          // Check if user paused
+          if (isCrawlerPaused) {
+            await new Promise(resolve => {
+              const checkPause = setInterval(() => {
+                if (!isCrawlerPaused) {
+                  clearInterval(checkPause);
+                  resolve();
+                }
+              }, 1000);
+            });
+          }
+        }
+      }
+      
+      // Crawler finished
+      isCrawlerActive = false;
+      isProcessing = false;
+      
+      // Update UI to show hierarchical view
+      updateGalleryView('crawler');
+      
+      // Show completion status
+      statusCounter.textContent = `Completed! Scanned ${crawlerStats.pagesScanned} threads, found ${foundImages.length} media items`;
+      
+    } catch (error) {
+      console.error('AnonIB crawler error:', error);
+      statusCounter.textContent = `Error: ${error.message}`;
+      isCrawlerActive = false;
+      isProcessing = false;
     }
-}
-// Helper function to check if a URL might be an image container
-function mightBeImageContainer(url) {
-    // Check for common image hosting or gallery URLs
-    const containerPatterns = [
-        /\/gallery\//i,
-        /\/photos?\//i,
-        /\/images?\//i,
-        /viewer/i,
-        /lightbox/i,
-        /\/(full|large|original)/i
-    ];
+  }
+  
+  // Process a single AnonIB board
+  async function processAnonibBoard(boardName) {
+    const catalogUrl = `/${boardName}/catalog.html`;
+    const fullCatalogUrl = new URL(catalogUrl, window.location.origin).href;
     
-    return containerPatterns.some(pattern => pattern.test(url));
-}
-
-// Helper function to extract possible full-size image URLs from HTML
-function extractPossibleFullSizeImageUrls(html, baseUrl, originalImageUrl) {
-    const possibleUrls = new Set();
-    const originalBaseName = getImageBaseName(originalImageUrl);
+    // Update status
+    statusCounter.textContent = `Processing board: ${boardName}`;
     
-    // Create a temporary DOM parser
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    
-    // Find all image elements and links
-    const elements = [
-        ...Array.from(doc.querySelectorAll('img[src]')),
-        ...Array.from(doc.querySelectorAll('a[href]')),
-        ...Array.from(doc.querySelectorAll('meta[content]'))
-    ];
-    
-    // Process each element
-    elements.forEach(element => {
-        let url = element.getAttribute('src') || 
-                 element.getAttribute('href') || 
-                 element.getAttribute('content');
+    try {
+      // Fetch the catalog
+      const catalogResponse = await fetch(fullCatalogUrl, { credentials: 'omit' });
+      if (!catalogResponse.ok) return;
+      
+      const catalogHtml = await catalogResponse.text();
+      const catalogDoc = new DOMParser().parseFromString(catalogHtml, 'text/html');
+      
+      // Find all thread cells
+      const threadCells = catalogDoc.querySelectorAll('.catalogCell');
+      
+      // Process each thread
+      for (let j = 0; j < threadCells.length; j++) {
+        if (!isCrawlerActive) break;
+        if (isCrawlerPaused) {
+          await new Promise(resolve => {
+            const checkPause = setInterval(() => {
+              if (!isCrawlerPaused) {
+                clearInterval(checkPause);
+                resolve();
+              }
+            }, 1000);
+          });
+        }
         
-        if (url && isImageUrl(url)) {
-            // Convert to absolute URL if needed
-            try {
-                url = new URL(url, baseUrl).href;
-                possibleUrls.add(url);
-            } catch (e) {
-                // Invalid URL, skip
+        const threadCell = threadCells[j];
+        const threadLink = threadCell.querySelector('.linkThumb');
+        
+        if (!threadLink) continue;
+        
+        const threadHref = threadLink.getAttribute('href');
+        if (!threadHref) continue;
+        
+        // Extract thread ID from href
+        let threadId = '';
+        const threadIdMatch = threadHref.match(/\/res\/(\d+)\.html/);
+        if (threadIdMatch && threadIdMatch[1]) {
+          threadId = threadIdMatch[1];
+        } else {
+          threadId = `unknown_${j}`;
+        }
+        
+        // Get thread URL
+        const threadUrl = new URL(threadHref, window.location.origin).href;
+        
+        // Find the thread title - look for subject or message content
+        let threadTitle = '';
+        
+        // First check for labelSubject
+        const subjectElement = threadCell.querySelector('.labelSubject');
+        if (subjectElement && subjectElement.textContent.trim()) {
+          threadTitle = subjectElement.textContent.trim();
+        } 
+        
+        // If no subject, try the message
+        if (!threadTitle) {
+          const messageElement = threadCell.querySelector('.divMessage');
+          if (messageElement && messageElement.textContent.trim()) {
+            threadTitle = messageElement.textContent.trim();
+            
+            // Truncate long message titles
+            if (threadTitle.length > 50) {
+              threadTitle = threadTitle.substring(0, 47) + '...';
             }
+          }
         }
-    });
-    
-    return Array.from(possibleUrls);
-}
+        
+        // If still no title, use generic with ID
+        if (!threadTitle) {
+          threadTitle = `Thread #${threadId}`;
+        }
+        
+        // Update status
+        statusCounter.textContent = `Processing board: ${boardName} - Thread ${j+1}/${threadCells.length} - ${threadTitle}`;
+        
+        // Get the board's thread map
+        const boardThreads = imageHierarchy.boards.get(boardName);
+        
+        // Initialize thread data
+        if (!boardThreads.has(threadId)) {
+          boardThreads.set(threadId, {
+            title: threadTitle,
+            url: threadUrl,
+            images: [],
+            videos: []
+          });
+        }
+        
+        // Update the UI immediately to show progress
+        updateGalleryView('crawler');
+        
+        try {
+          // Fetch the thread page
+          const threadResponse = await fetch(threadUrl, { credentials: 'omit' });
+          if (!threadResponse.ok) continue;
+          
+          const threadHtml = await threadResponse.text();
+          const threadDoc = new DOMParser().parseFromString(threadHtml, 'text/html');
+          
+          // Get current thread data
+          const threadData = boardThreads.get(threadId);
+          
+          // Find all images in thread using the correct selector
+          const imgLinks = threadDoc.querySelectorAll('a.imgLink');
+          
+          for (const imgLink of imgLinks) {
+            const href = imgLink.getAttribute('href');
+            if (!href) continue;
+            
+            const fullUrl = new URL(href, window.location.origin).href;
+            
+            // Determine if it's an image or video by examining the URL or data-mime attribute
+            const mimeType = imgLink.getAttribute('data-filemime') || '';
+            const isVideo = mimeType.includes('video') || 
+                          fullUrl.match(/\.(mp4|webm|mov|avi|wmv|flv|mkv)$/i);
+            
+            if (isVideo) {
+              // Add to videos list if not already included
+              if (!threadData.videos.includes(fullUrl) && !processedImageUrls.has(fullUrl)) {
+                threadData.videos.push(fullUrl);
+                processedImageUrls.add(fullUrl);
+                
+                // Also add to global video list if tracking is needed
+                if (!foundImages.includes(fullUrl)) {
+                  foundImages.push(fullUrl);
+                }
+              }
+            } else {
+              // Add to images list if not already included
+              if (!threadData.images.includes(fullUrl) && !processedImageUrls.has(fullUrl)) {
+                threadData.images.push(fullUrl);
+                processedImageUrls.add(fullUrl);
+                
+                // Also add to global image list
+                if (!foundImages.includes(fullUrl)) {
+                  foundImages.push(fullUrl);
+                }
+              }
+            }
+          }
+          
+          // Update crawler stats
+          crawlerStats.pagesScanned++;
+          crawlerStats.imagesFound = foundImages.length;
+          crawlerStats.lastActive = Date.now();
+          
+          // Update UI to show progress
+          updateGalleryView('crawler');
+          
+          // Update progress
+          updateCrawlerProgress();
+          
+          // Add a small delay to prevent overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+        } catch (threadError) {
+          console.error('Error processing thread:', threadError);
+          continue;
+        }
+      }
+      
+    } catch (catalogError) {
+      console.error('Error processing catalog:', catalogError);
+    }
+  }
 
-// Helper function to select the best image URL from a list
-function selectBestImageUrl(urls) {
-    if (urls.length === 0) return null;
-    if (urls.length === 1) return urls[0];
-    
-    // Score each URL based on various factors
-    const urlScores = urls.map(url => {
-        let score = 0;
-        const lowerUrl = url.toLowerCase();
-        
-        // Prefer URLs with quality indicators
-        if (lowerUrl.includes('original')) score += 5;
-        if (lowerUrl.includes('large')) score += 4;
-        if (lowerUrl.includes('full')) score += 3;
-        if (lowerUrl.includes('high')) score += 2;
-        
-        // Penalize URLs with size indicators
-        if (lowerUrl.includes('thumb')) score -= 3;
-        if (lowerUrl.includes('small')) score -= 2;
-        if (lowerUrl.includes('preview')) score -= 1;
-        
-        return { url, score };
-    });
-    
-    // Return URL with highest score
-    return urlScores.reduce((best, current) => 
-        current.score > best.score ? current : best
-    ).url;
-}
-// Add main event listeners
-function setupEventListeners() {
-    // Floating button click handler
-    floatingButton.addEventListener('click', () => {
-        if (galleryContainer.style.display === 'none') {
-            currentMethod = 'standard';
-            showGallery();
+  // Modified collectAnonibImages to handle both images and videos
+  function collectAnonibImages(pageUrl, doc) {
+    try {
+      // Add the page to processed pages
+      processedPageUrls.add(pageUrl);
+      
+      // Look for all imgLink anchors - this is the correct selector for AnonIB images
+      const imgLinks = doc.querySelectorAll('a.imgLink');
+      
+      // If this is a thread page on AnonIB, try to organize by thread
+      const currentUrl = new URL(pageUrl);
+      const pathParts = currentUrl.pathname.split('/');
+      
+      // Check if this is a thread page
+      const isThreadPage = pathParts.length >= 3 && pathParts[2] === 'res';
+      
+      // Extract board name and thread ID if applicable
+      let boardName = '';
+      let threadId = '';
+      let threadTitle = '';
+      
+      if (isThreadPage && pathParts.length >= 4) {
+        boardName = pathParts[1];
+        // Extract thread ID from URL (e.g., /ak/res/7335.html -> 7335)
+        const threadMatch = pathParts[3].match(/(\d+)\.html/);
+        if (threadMatch && threadMatch[1]) {
+          threadId = threadMatch[1];
         }
+        
+        // Try to get thread title
+        const subjectElement = doc.querySelector('.innerOP .labelSubject');
+        if (subjectElement && subjectElement.textContent.trim()) {
+          threadTitle = subjectElement.textContent.trim();
+        }// Current Date and Time (UTC): 2025-03-13 20:48:03
+// Current User's Login: JLSmart13
+
+        const subjectElement = doc.querySelector('.innerOP .labelSubject');
+        if (subjectElement && subjectElement.textContent.trim()) {
+          threadTitle = subjectElement.textContent.trim();
+        } else {
+          const messageElement = doc.querySelector('.innerOP .divMessage');
+          if (messageElement && messageElement.textContent.trim()) {
+            threadTitle = messageElement.textContent.trim();
+            // Truncate long message titles
+            if (threadTitle.length > 50) {
+              threadTitle = threadTitle.substring(0, 47) + '...';
+            }
+          }
+        }
+        
+        // If no title found, use generic title
+        if (!threadTitle) {
+          threadTitle = `Thread #${threadId}`;
+        }
+        
+        // Ensure board exists in hierarchy
+        if (!imageHierarchy.boards.has(boardName)) {
+          imageHierarchy.boards.set(boardName, new Map());
+        }
+        
+        // Get the board's thread map
+        const boardThreads = imageHierarchy.boards.get(boardName);
+        
+        // Initialize thread data if needed
+        if (!boardThreads.has(threadId)) {
+          boardThreads.set(threadId, {
+            title: threadTitle,
+            url: pageUrl,
+            images: [],
+            videos: []
+          });
+        }
+      }
+      
+      // Process each img link
+      imgLinks.forEach(imgLink => {
+        const href = imgLink.getAttribute('href');
+        if (!href) return;
+        
+        const fullUrl = new URL(href, pageUrl).href;
+        
+        // Skip if already processed
+        if (processedImageUrls.has(fullUrl)) return;
+        
+        // Mark as processed
+        processedImageUrls.add(fullUrl);
+        
+        // Determine if it's an image or video by examining the URL or data-mime attribute
+        const mimeType = imgLink.getAttribute('data-filemime') || '';
+        const isVideo = mimeType.includes('video') || 
+                      fullUrl.match(/\.(mp4|webm|mov|avi|wmv|flv|mkv)$/i);
+        
+        // Add to thread data if applicable
+        if (isThreadPage && boardName && threadId) {
+          const threadData = imageHierarchy.boards.get(boardName).get(threadId);
+          
+          if (isVideo) {
+            if (!threadData.videos.includes(fullUrl)) {
+              threadData.videos.push(fullUrl);
+            }
+          } else {
+            if (!threadData.images.includes(fullUrl)) {
+              threadData.images.push(fullUrl);
+            }
+          }
+        }
+        
+        // Add to global image list
+        if (!foundImages.includes(fullUrl)) {
+          foundImages.push(fullUrl);
+        }
+      });
+      
+      // Look for more thread links to add to pending
+      if (currentMethod === 'crawler') {
+        const threadLinks = doc.querySelectorAll('.linkThumb');
+        
+        threadLinks.forEach(link => {
+          const href = link.getAttribute('href');
+          if (!href) return;
+          
+          const fullUrl = new URL(href, window.location.origin).href;
+          
+          // Skip if already processed or pending
+          if (processedPageUrls.has(fullUrl) || pendingLinks.includes(fullUrl)) return;
+          
+          // Add to pending links
+          pendingLinks.push(fullUrl);
+        });
+      }
+      
+      // Update immediately
+      updateGalleryView(currentMethod);
+      updateCounter();
+    } catch (error) {
+      console.error('Error collecting AnonIB images:', error);
+    }
+  }
+
+  // Update gallery view - enhance to work properly with AnonIB content
+  function updateGalleryView(mode) {
+    if (!galleryView) return;
+    galleryView.innerHTML = '';
+    
+    // Create container for gallery items
+    const container = document.createElement('div');
+    container.className = 'gallery-container';
+    
+    if (mode === 'standard') {
+      // Standard mode remains unchanged
+      // Display images as a flat gallery
+      foundImages.forEach(imgUrl => {
+        const imgContainer = createImageContainer(imgUrl, imgUrl);
+        container.appendChild(imgContainer);
+      });
+    } else if (mode === 'crawler' && imageHierarchy && imageHierarchy.boards.size > 0) {
+      // Create hierarchical view of boards -> threads -> media
+      imageHierarchy.boards.forEach((threads, boardName) => {
+        if (threads.size === 0) return; // Skip empty boards
+        
+        // Create board section
+        const boardSection = document.createElement('div');
+        boardSection.className = 'board-section';
+        
+        // Create header for board
+        const boardHeader = document.createElement('div');
+        boardHeader.className = 'board-header collapsible';
+        boardHeader.innerHTML = `<h3>${boardName} <span class="thread-count">(${threads.size} threads)</span></h3>`;
+        boardSection.appendChild(boardHeader);
+        
+        // Create content div for threads
+        const boardContent = document.createElement('div');
+        boardContent.className = 'board-content';
+        
+        // Add click event to header for collapsing
+        boardHeader.addEventListener('click', () => {
+          boardHeader.classList.toggle('collapsed');
+          boardContent.style.display = boardContent.style.display === 'none' ? 'block' : 'none';
+        });
+        
+        // Process threads
+        threads.forEach((threadData, threadId) => {
+          if ((!threadData.images || threadData.images.length === 0) && 
+              (!threadData.videos || threadData.videos.length === 0)) return; // Skip threads with no media
+          
+          // Create thread section
+          const threadSection = document.createElement('div');
+          threadSection.className = 'thread-section';
+          
+          // Calculate total media count
+          const imageCount = threadData.images ? threadData.images.length : 0;
+          const videoCount = threadData.videos ? threadData.videos.length : 0;
+          const totalCount = imageCount + videoCount;
+          
+          // Create header for thread
+          const threadHeader = document.createElement('div');
+          threadHeader.className = 'thread-header collapsible';
+          
+          // Create thread info with thread title and media counts
+          let mediaCountText = '';
+          if (imageCount > 0 && videoCount > 0) {
+            mediaCountText = `(${imageCount} images, ${videoCount} videos)`;
+          } else if (imageCount > 0) {
+            mediaCountText = `(${imageCount} images)`;
+          } else if (videoCount > 0) {
+            mediaCountText = `(${videoCount} videos)`;
+          }
+          
+          threadHeader.innerHTML = `
+            <h4>${threadData.title} <span class="media-count">${mediaCountText}</span></h4>
+            <a href="${threadData.url}" target="_blank" class="thread-link" title="Open thread in new tab">🌐</a>
+          `;
+          
+          threadSection.appendChild(threadHeader);
+          
+          // Create content div for media
+          const threadContent = document.createElement('div');
+          threadContent.className = 'thread-content';
+          
+          // Add click event to header for collapsing
+          threadHeader.addEventListener('click', (e) => {
+            // Don't collapse if clicking the link
+            if (e.target.classList.contains('thread-link') || e.target.tagName === 'A') return;
+            
+            threadHeader.classList.toggle('collapsed');
+            threadContent.style.display = threadContent.style.display === 'none' ? 'block' : 'none';
+          });
+          
+          // Create media sections
+          if (threadData.images && threadData.images.length > 0) {
+            // Images section
+            const imagesSection = document.createElement('div');
+            imagesSection.className = 'images-section';
+            
+            // Add images header if there are also videos
+            if (threadData.videos && threadData.videos.length > 0) {
+              const imagesHeader = document.createElement('h5');
+              imagesHeader.textContent = 'Images';
+              imagesSection.appendChild(imagesHeader);
+            }
+            
+            // Add images
+            threadData.images.forEach(imgUrl => {
+              const imgContainer = createImageContainer(imgUrl, imgUrl);
+              imagesSection.appendChild(imgContainer);
+            });
+            
+            threadContent.appendChild(imagesSection);
+          }
+          
+          if (threadData.videos && threadData.videos.length > 0) {
+            // Videos section
+            const videosSection = document.createElement('div');
+            videosSection.className = 'videos-section';
+            
+            // Add videos header if there are also images
+            if (threadData.images && threadData.images.length > 0) {
+              const videosHeader = document.createElement('h5');
+              videosHeader.textContent = 'Videos';
+              videosSection.appendChild(videosHeader);
+            }
+            
+            // Add videos
+            threadData.videos.forEach(videoUrl => {
+              // Create video container similar to image container but with video icon
+              const videoContainer = document.createElement('div');
+              videoContainer.className = 'image-container video-container';
+              videoContainer.title = 'Click to play video';
+              
+              // Create thumbnail with video icon overlay
+              const thumbnail = document.createElement('div');
+              thumbnail.className = 'video-thumbnail';
+              thumbnail.style.cssText = `
+                position: relative;
+                width: 150px;
+                height: 150px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background-color: #222;
+                margin: 5px;
+                cursor: pointer;
+              `;
+              
+              // Add video icon
+              const videoIcon = document.createElement('div');
+              videoIcon.innerHTML = '▶️';
+              videoIcon.style.cssText = `
+                font-size: 48px;
+                opacity: 0.8;
+              `;
+              
+              thumbnail.appendChild(videoIcon);
+              videoContainer.appendChild(thumbnail);
+              
+              // Add click event for video
+              videoContainer.addEventListener('click', () => {
+                window.open(videoUrl, '_blank');
+              });
+              
+              videosSection.appendChild(videoContainer);
+            });
+            
+            threadContent.appendChild(videosSection);
+          }
+          
+          threadSection.appendChild(threadContent);
+          boardContent.appendChild(threadSection);
+        });
+        
+        boardSection.appendChild(boardContent);
+        container.appendChild(boardSection);
+      });
+    }
+    
+    galleryView.appendChild(container);
+    
+    // Add CSS for collapsible sections
+    addCollapseStyles();
+  }
+  
+  // Function to add CSS for collapsible sections
+  function addCollapseStyles() {
+    // Remove existing style if it exists
+    const existingStyle = document.getElementById('collapse-styles');
+    if (existingStyle) {
+      existingStyle.remove();
+    }
+    
+    const styleElement = document.createElement('style');
+    styleElement.id = 'collapse-styles';
+    styleElement.textContent = `
+      .collapsible {
+        cursor: pointer;
+        padding: 5px;
+        background-color: #333;
+        border-radius: 4px;
+        margin-bottom: 5px;
+        position: relative;
+      }
+      
+      .collapsible:after {
+        content: '▼';
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        transition: transform 0.3s;
+      }
+      
+      .collapsible.collapsed:after {
+        transform: translateY(-50%) rotate(-90deg);
+      }
+      
+      .board-section {
+        margin-bottom: 20px;
+      }
+      
+      .thread-section {
+        margin-left: 20px;
+        margin-bottom: 10px;
+      }
+      
+      .board-content, .thread-content {
+        display: block;
+        transition: display 0.3s;
+      }
+      
+      .board-header.collapsed + .board-content,
+      .thread-header.collapsed + .thread-content {
+        display: none !important;
+      }
+      
+      .thread-link {
+        margin-left: 10px;
+        text-decoration: none;
+        color: lightblue;
+      }
+      
+      .thread-link:hover {
+        color: white;
+      }
+      
+      .images-section, .videos-section {
+        display: flex;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      
+      h5 {
+        width: 100%;
+        margin: 5px 0;
+        font-size: 14px;
+        color: #ccc;
+      }
+      
+      .video-container {
+        border: 1px solid #555;
+      }
+    `;
+    
+    document.head.appendChild(styleElement);
+  }
+  
+  // Create image container - modified to support both images and videos
+  function createImageContainer(thumbUrl, fullSizeUrl) {
+    const container = document.createElement('div');
+    container.className = 'image-container';
+    
+    // Create thumbnail
+    const img = document.createElement('img');
+    img.src = thumbUrl;
+    img.alt = 'Gallery Image';
+    img.style.cssText = `
+      max-width: 150px;
+      max-height: 150px;
+      margin: 5px;
+      cursor: pointer;
+    `;
+    
+    // Add click event for lightbox
+    img.addEventListener('click', () => {
+      showLightbox(fullSizeUrl);
     });
     
-    // Crawler button click handler
-    crawlerButton.addEventListener('click', () => {
+    // Add context menu for options
+    container.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showImageInfo(thumbUrl, fullSizeUrl);
+    });
+    
+    container.appendChild(img);
+    return container;
+  }
+  
+  // Update crawler progress UI
+  function updateCrawlerProgress() {
+    const progressElement = document.getElementById('crawlerProgress');
+    if (!progressElement) return;
+    
+    const progressBar = progressElement.querySelector('.progress-bar');
+    const progressText = progressElement.querySelector('.progress-text');
+    
+    if (!progressBar || !progressText) return;
+    
+    // Calculate progress based on processed URLs vs. total (including pending)
+    const totalUrls = processedPageUrls.size + pendingLinks.length;
+    const processedUrls = processedPageUrls.size;
+    
+    let percentComplete = 0;
+    if (totalUrls > 0) {
+      percentComplete = Math.min(100, Math.round((processedUrls / totalUrls) * 100));
+    }
+    
+    // Update progress bar
+    progressBar.style.width = `${percentComplete}%`;
+    
+    // Update text
+    progressText.textContent = `Processed ${processedUrls} pages, found ${foundImages.length} media items (${percentComplete}% complete)`;
+    
+    // Add time information
+    const elapsedTime = (Date.now() - crawlerStats.startTime) / 1000; // in seconds
+    const timePerPage = elapsedTime / (processedUrls || 1);
+    const remainingPages = pendingLinks.length;
+    const estimatedTimeRemaining = remainingPages * timePerPage;
+    
+    // Format time remaining
+    let timeRemainingText = '';
+    if (remainingPages > 0) {
+      if (estimatedTimeRemaining < 60) {
+        timeRemainingText = `${Math.round(estimatedTimeRemaining)} seconds remaining`;
+      } else if (estimatedTimeRemaining < 3600) {
+        timeRemainingText = `${Math.round(estimatedTimeRemaining / 60)} minutes remaining`;
+      } else {
+        timeRemainingText = `${Math.round(estimatedTimeRemaining / 3600)} hours remaining`;
+      }
+      
+      progressText.textContent += ` - ${timeRemainingText}`;
+    }
+  }// Current Date and Time (UTC): 2025-03-13 20:51:22
+// Current User's Login: JLSmart13
+
+  // Update crawler progress UI
+  function updateCrawlerProgress() {
+    const progressElement = document.getElementById('crawlerProgress');
+    if (!progressElement) return;
+    
+    const progressBar = progressElement.querySelector('.progress-bar');
+    const progressText = progressElement.querySelector('.progress-text');
+    
+    if (!progressBar || !progressText) return;
+    
+    // Calculate progress based on processed URLs vs. total (including pending)
+    const totalUrls = processedPageUrls.size + pendingLinks.length;
+    const processedUrls = processedPageUrls.size;
+    
+    let percentComplete = 0;
+    if (totalUrls > 0) {
+      percentComplete = Math.min(100, Math.round((processedUrls / totalUrls) * 100));
+    }
+    
+    // Update progress bar
+    progressBar.style.width = `${percentComplete}%`;
+    
+    // Update text
+    progressText.textContent = `Processed ${processedUrls} pages, found ${foundImages.length} media items (${percentComplete}% complete)`;
+    
+    // Add time information
+    const elapsedTime = (Date.now() - crawlerStats.startTime) / 1000; // in seconds
+    const timePerPage = elapsedTime / (processedUrls || 1);
+    const remainingPages = pendingLinks.length;
+    const estimatedTimeRemaining = remainingPages * timePerPage;
+    
+    // Format time remaining
+    let timeRemainingText = '';
+    if (remainingPages > 0) {
+      if (estimatedTimeRemaining < 60) {
+        timeRemainingText = `${Math.round(estimatedTimeRemaining)} seconds remaining`;
+      } else if (estimatedTimeRemaining < 3600) {
+        timeRemainingText = `${Math.round(estimatedTimeRemaining / 60)} minutes remaining`;
+      } else {
+        timeRemainingText = `${Math.round(estimatedTimeRemaining / 3600)} hours remaining`;
+      }
+      
+      progressText.textContent += ` - ${timeRemainingText}`;
+    }
+  }
+  
+  // Function to check if an AnonIB URL is supported by the crawler
+  function isAnonibUrl(url) {
+    const anonibDomain = 'anonib.pk';
+    try {
+      const urlObj = new URL(url);
+      return urlObj.hostname === anonibDomain || urlObj.hostname.endsWith(`.${anonibDomain}`);
+    } catch (e) {
+      return false;
+    }
+  }
+  
+  // Function to determine if an URL is a thread URL
+  function isAnonibThreadUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      return urlObj.pathname.includes('/res/') && urlObj.pathname.endsWith('.html');
+    } catch (e) {
+      return false;
+    }
+  }
+  
+  // Function to determine if an URL is a board URL
+  function isAnonibBoardUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split('/');
+      // Board URLs are like /ak/ or /ak/index.html
+      return pathParts.length >= 2 && pathParts[1].length > 0 && 
+          (!pathParts[2] || pathParts[2] === '' || pathParts[2] === 'index.html');
+    } catch (e) {
+      return false;
+    }
+  }
+  
+  // Function to determine if an URL is a catalog URL
+  function isAnonibCatalogUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      return urlObj.pathname.includes('catalog.html');
+    } catch (e) {
+      return false;
+    }
+  }
+  
+  // Function to extract board name from URL
+  function extractAnonibBoardName(url) {
+    try {
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split('/');
+      if (pathParts.length >= 2 && pathParts[1].length > 0) {
+        return pathParts[1];
+      }
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+  
+  // Function to extract thread ID from URL
+  function extractAnonibThreadId(url) {
+    try {
+      const urlObj = new URL(url);
+      const match = urlObj.pathname.match(/\/res\/(\d+)\.html/);
+      if (match && match[1]) {
+        return match[1];
+      }
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+  
+  // Initialize AnonIB crawler UI
+  function initializeAnonibCrawlerUI() {
+    // Create crawler settings section if it doesn't exist
+    let crawlerSettings = document.getElementById('crawlerSettings');
+    if (!crawlerSettings) {
+      crawlerSettings = document.createElement('div');
+      crawlerSettings.id = 'crawlerSettings';
+      crawlerSettings.className = 'crawler-settings';
+      
+      // Add style for crawler settings
+      const crawlerSettingsStyle = `
+        #crawlerSettings {
+          margin-top: 10px;
+          padding: 10px;
+          background-color: #333;
+          border-radius: 5px;
+        }
+        
+        .crawler-option {
+          margin-bottom: 10px;
+        }
+        
+        .crawler-option label {
+          display: block;
+          margin-bottom: 5px;
+        }
+        
+        .crawler-option input[type="checkbox"] {
+          margin-right: 5px;
+        }
+        
+        .crawler-option input[type="number"] {
+          width: 60px;
+          padding: 3px;
+          background-color: #222;
+          color: #fff;
+          border: 1px solid #555;
+        }
+      `;
+      
+      const styleElement = document.createElement('style');
+      styleElement.textContent = crawlerSettingsStyle;
+      document.head.appendChild(styleElement);
+      
+      // Create AnonIB settings content
+      crawlerSettings.innerHTML = `
+        <h3>AnonIB Crawler Settings</h3>
+        
+        <div class="crawler-option">
+          <label>
+            <input type="checkbox" id="separateMediaTypes" checked>
+            Separate images and videos
+          </label>
+        </div>
+        
+        <div class="crawler-option">
+          <label>
+            <input type="checkbox" id="dynamicUpdates" checked>
+            Show dynamic updates while crawling
+          </label>
+        </div>
+        
+        <div class="crawler-option">
+          <label>
+            <input type="checkbox" id="collapseThreads">
+            Collapse threads by default
+          </label>
+        </div>
+        
+        <div class="crawler-option">
+          <label for="maxThreadsPerBoard">Max threads per board:</label>
+          <input type="number" id="maxThreadsPerBoard" value="50" min="1" max="500">
+        </div>
+        
+        <div class="crawler-option">
+          <label for="threadDelay">Delay between thread requests (ms):</label>
+          <input type="number" id="threadDelay" value="500" min="100" max="5000" step="100">
+        </div>
+      `;
+      
+      // Add settings to the UI
+      const controlsContainer = document.getElementById('controlsContainer');
+      if (controlsContainer) {
+        controlsContainer.appendChild(crawlerSettings);
+      }
+    }
+    
+    // Create or update crawler progress section
+    let crawlerProgress = document.getElementById('crawlerProgress');
+    if (!crawlerProgress) {
+      crawlerProgress = document.createElement('div');
+      crawlerProgress.id = 'crawlerProgress';
+      crawlerProgress.className = 'crawler-progress';
+      
+      // Add progress bar style
+      const progressStyle = `
+        .crawler-progress {
+          margin-top: 15px;
+          padding: 10px;
+          background-color: #333;
+          border-radius: 5px;
+        }
+        
+        .progress-container {
+          height: 20px;
+          background-color: #222;
+          border-radius: 3px;
+          overflow: hidden;
+          margin-bottom: 10px;
+        }
+        
+        .progress-bar {
+          height: 100%;
+          background-color: #4caf50;
+          width: 0;
+          transition: width 0.3s ease;
+        }
+        
+        .progress-text {
+          font-size: 14px;
+          color: #ccc;
+        }
+      `;
+      
+      const progressStyleElement = document.createElement('style');
+      progressStyleElement.textContent = progressStyle;
+      document.head.appendChild(progressStyleElement);
+      
+      // Create progress content
+      crawlerProgress.innerHTML = `
+        <h3>Crawler Progress</h3>
+        <div class="progress-container">
+          <div class="progress-bar"></div>
+        </div>
+        <div class="progress-text">Ready to start crawling</div>
+      `;
+      
+      // Add progress to the UI
+      const controlsContainer = document.getElementById('controlsContainer');
+      if (controlsContainer) {
+        controlsContainer.appendChild(crawlerProgress);
+      }
+    }
+    
+    // Update settings based on current state of imageHierarchy
+    const separateMediaTypes = document.getElementById('separateMediaTypes');
+    if (separateMediaTypes) {
+      separateMediaTypes.addEventListener('change', () => {
+        // Update gallery view to reflect new setting
+        updateGalleryView('crawler');
+      });
+    }
+    
+    const collapseThreads = document.getElementById('collapseThreads');
+    if (collapseThreads) {
+      collapseThreads.addEventListener('change', () => {
+        // Toggle collapsed state for all threads
+        const threadHeaders = document.querySelectorAll('.thread-header');
+        const shouldCollapse = collapseThreads.checked;
+        
+        threadHeaders.forEach(header => {
+          const content = header.nextElementSibling;
+          if (shouldCollapse) {
+            header.classList.add('collapsed');
+            if (content) content.style.display = 'none';
+          } else {
+            header.classList.remove('collapsed');
+            if (content) content.style.display = 'block';
+          }
+        });
+      });
+    }
+  }
+  
+  // Initialize AnonIB site handling in the script
+  function initializeAnonibSiteHandler() {
+    // Check if we're on an AnonIB site
+    if (isAnonibUrl(window.location.href)) {
+      console.log('AnonIB site detected, initializing specialized handler...');
+      
+      // Initialize AnonIB UI
+      initializeAnonibCrawlerUI();
+      
+      // Add AnonIB-specific controls
+      addAnonibControls();
+      
+      // If we're on a board or thread page, we can offer direct crawling
+      if (isAnonibBoardUrl(window.location.href) || 
+          isAnonibCatalogUrl(window.location.href) ||
+          isAnonibThreadUrl(window.location.href)) {
+        
+        // Add a specialized button for the current context
+        addCurrentPageCrawlButton();
+      }
+    }
+  }
+  
+  // Add AnonIB-specific controls to the UI
+  function addAnonibControls() {
+    const controlsContainer = document.getElementById('controlsContainer');
+    if (!controlsContainer) return;
+    
+    // Create AnonIB controls if they don't exist
+    let anonibControls = document.getElementById('anonibControls');
+    if (!anonibControls) {
+      anonibControls = document.createElement('div');
+      anonibControls.id = 'anonibControls';
+      anonibControls.className = 'anonib-controls';
+      
+      // Add styles for the controls
+      const controlsStyle = `
+        .anonib-controls {
+          margin-top: 15px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+        
+        .anonib-button {
+          background-color: #444;
+          color: white;
+          border: none;
+          padding: 8px 15px;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        
+        .anonib-button:hover {
+          background-color: #555;
+        }
+        
+        .anonib-button.primary {
+          background-color: #2967a0;
+        }
+        
+        .anonib-button.primary:hover {
+          background-color: #357ab8;
+        }
+      `;
+      
+      const controlsStyleElement = document.createElement('style');
+      controlsStyleElement.textContent = controlsStyle;
+      document.head.appendChild(controlsStyleElement);
+      
+      controlsContainer.appendChild(anonibControls);
+    }
+    
+    // Clear existing controls
+    anonibControls.innerHTML = '';
+    
+    // Add crawler start button
+    const startCrawlerButton = document.createElement('button');
+    startCrawlerButton.className = 'anonib-button primary';
+    startCrawlerButton.textContent = 'Start AnonIB Crawler';
+    startCrawlerButton.addEventListener('click', () => {
+      if (!isCrawlerActive) {
+        isCrawlerActive = true;
+        isProcessing = true;
+        currentMethod = 'crawler';
+        initializeImageHierarchy();
+        startAnonibCrawler();
+      } else {
+        alert('Crawler is already active!');
+      }
+    });
+    anonibControls.appendChild(startCrawlerButton);
+    
+    // Add pause/resume button
+    const pauseResumeButton = document.createElement('button');
+    pauseResumeButton.id = 'pauseResumeButton';
+    pauseResumeButton.className = 'anonib-button';
+    pauseResumeButton.textContent = 'Pause Crawler';
+    pauseResumeButton.addEventListener('click', () => {
+      if (isCrawlerActive) {
+        isCrawlerPaused = !isCrawlerPaused;
+        pauseResumeButton.textContent = isCrawlerPaused ? 'Resume Crawler' : 'Pause Crawler';
+        statusCounter.textContent = isCrawlerPaused ? 
+          'Crawler paused. Click Resume to continue.' : 
+          'Resuming crawler...';
+      }
+    });
+    anonibControls.appendChild(pauseResumeButton);
+    
+    // Add stop button
+    const stopButton = document.createElement('button');
+    stopButton.className = 'anonib-button';
+    stopButton.textContent = 'Stop Crawler';
+    stopButton.addEventListener('click', () => {
+      if (isCrawlerActive) {
+        isCrawlerActive = false;
+        isCrawlerPaused = false;
+        isProcessing = false;
+        pauseResumeButton.textContent = 'Pause Crawler';
+        statusCounter.textContent = 'Crawler stopped.';
+      }
+    });
+    anonibControls.appendChild(stopButton);
+    
+    // Add clear results button
+    const clearButton = document.createElement('button');
+    clearButton.className = 'anonib-button';
+    clearButton.textContent = 'Clear Results';
+    clearButton.addEventListener('click', () => {
+      if (!isCrawlerActive || confirm('This will clear all results. Are you sure?')) {
+        foundImages = [];
+        processedImageUrls.clear();
+        processedPageUrls.clear();
+        pendingLinks = [];
+        initializeImageHierarchy();
+        updateGalleryView('crawler');
+        updateCounter();
+        statusCounter.textContent = 'Results cleared.';
+      }
+    });
+    anonibControls.appendChild(clearButton);
+    
+    // Add download button
+    const// Current Date and Time (UTC): 2025-03-13 20:54:03
+// Current User's Login: JLSmart13
+
+    // Add download button
+    const downloadButton = document.createElement('button');
+    downloadButton.className = 'anonib-button';
+    downloadButton.textContent = 'Download URLs';
+    downloadButton.addEventListener('click', () => {
+      if (foundImages.length === 0) {
+        alert('No images found to download');
+        return;
+      }
+      
+      // Create organized list of URLs by board and thread
+      let content = '// AnonIB Gallery URLs - Generated ' + new Date().toISOString() + '\n\n';
+      
+      if (imageHierarchy && imageHierarchy.boards.size > 0) {
+        imageHierarchy.boards.forEach((threads, boardName) => {
+          content += `// Board: ${boardName}\n`;
+          
+          threads.forEach((threadData, threadId) => {
+            content += `// Thread: ${threadData.title} (${threadId})\n`;
+            content += `// Thread URL: ${threadData.url}\n\n`;
+            
+            if (threadData.images && threadData.images.length > 0) {
+              content += `// Images (${threadData.images.length}):\n`;
+              threadData.images.forEach(imgUrl => {
+                content += imgUrl + '\n';
+              });
+              content += '\n';
+            }
+            
+            if (threadData.videos && threadData.videos.length > 0) {
+              content += `// Videos (${threadData.videos.length}):\n`;
+              threadData.videos.forEach(videoUrl => {
+                content += videoUrl + '\n';
+              });
+              content += '\n';
+            }
+            
+            content += '// -------------------------------------------\n\n';
+          });
+          
+          content += '// ===========================================\n\n';
+        });
+      } else {
+        // Flat list
+        content += '// All URLs:\n';
+        foundImages.forEach(url => {
+          content += url + '\n';
+        });
+      }
+      
+      // Create download link
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'anonib_gallery_urls.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+    anonibControls.appendChild(downloadButton);
+  }
+  
+  // Add button to crawl the current page context
+  function addCurrentPageCrawlButton() {
+    const anonibControls = document.getElementById('anonibControls');
+    if (!anonibControls) return;
+    
+    // Create current page crawl button
+    const currentPageButton = document.createElement('button');
+    currentPageButton.className = 'anonib-button primary';
+    
+    // Determine the current context
+    if (isAnonibThreadUrl(window.location.href)) {
+      currentPageButton.textContent = 'Crawl Current Thread';
+      currentPageButton.addEventListener('click', () => {
         if (!isCrawlerActive) {
-            currentMethod = 'crawler';
-            startCrawler();
+          isCrawlerActive = true;
+          isProcessing = true;
+          currentMethod = 'crawler';
+          initializeImageHierarchy();
+          
+          // Extract thread information
+          const boardName = extractAnonibBoardName(window.location.href);
+          const threadId = extractAnonibThreadId(window.location.href);
+          
+          // Update status
+          statusCounter.textContent = `Collecting images from thread ${threadId} on board ${boardName}...`;
+          
+          // Process current thread
+          if (boardName && threadId) {
+            // Create board entry in hierarchy
+            if (!imageHierarchy.boards.has(boardName)) {
+              imageHierarchy.boards.set(boardName, new Map());
+            }
+            
+            // Get thread title
+            let threadTitle = '';
+            const subjectElement = document.querySelector('.innerOP .labelSubject');
+            if (subjectElement && subjectElement.textContent.trim()) {
+              threadTitle = subjectElement.textContent.trim();
+            } else {
+              const messageElement = document.querySelector('.innerOP .divMessage');
+              if (messageElement && messageElement.textContent.trim()) {
+                threadTitle = messageElement.textContent.trim();
+                // Truncate long message titles
+                if (threadTitle.length > 50) {
+                  threadTitle = threadTitle.substring(0, 47) + '...';
+                }
+              }
+            }
+            
+            if (!threadTitle) {
+              threadTitle = `Thread #${threadId}`;
+            }
+            
+            // Initialize thread data
+            const boardThreads = imageHierarchy.boards.get(boardName);
+            boardThreads.set(threadId, {
+              title: threadTitle,
+              url: window.location.href,
+              images: [],
+              videos: []
+            });
+            
+            // Process images directly from the DOM
+            collectAnonibImages(window.location.href, document);
+            
+            // Complete processing
+            isCrawlerActive = false;
+            isProcessing = false;
+            statusCounter.textContent = `Completed! Found ${foundImages.length} media items in thread`;
+            
+            // Update UI
+            updateGalleryView('crawler');
+          }
+        } else {
+          alert('Crawler is already active!');
         }
-        crawlerControls.style.display = 'flex';
+      });
+    }
+    else if (isAnonibCatalogUrl(window.location.href) || isAnonibBoardUrl(window.location.href)) {
+      currentPageButton.textContent = 'Crawl Current Board';
+      currentPageButton.addEventListener('click', () => {
+        if (!isCrawlerActive) {
+          isCrawlerActive = true;
+          isProcessing = true;
+          currentMethod = 'crawler';
+          initializeImageHierarchy();
+          
+          // Extract board name
+          const boardName = extractAnonibBoardName(window.location.href);
+          
+          if (boardName) {
+            // Create board entry in hierarchy
+            if (!imageHierarchy.boards.has(boardName)) {
+              imageHierarchy.boards.set(boardName, new Map());
+            }
+            
+            // Process this board
+            processAnonibBoard(boardName).then(() => {
+              // Crawler finished
+              isCrawlerActive = false;
+              isProcessing = false;
+              
+              // Update UI
+              updateGalleryView('crawler');
+              
+              // Show completion status
+              statusCounter.textContent = `Completed! Found ${foundImages.length} media items on board ${boardName}`;
+            }).catch(error => {
+              console.error('Error processing board:', error);
+              statusCounter.textContent = `Error: ${error.message}`;
+              isCrawlerActive = false;
+              isProcessing = false;
+            });
+          }
+        } else {
+          alert('Crawler is already active!');
+        }
+      });
+    }
+    
+    // Add the button to controls
+    if (currentPageButton.textContent) {
+      anonibControls.insertBefore(currentPageButton, anonibControls.firstChild);
+    }
+  }
+  
+  // Initialize image hierarchy for organizing media
+  function initializeImageHierarchy() {
+    imageHierarchy = {
+      boards: new Map() // Map of board name -> Map of thread ID -> thread data
+    };
+  }// Current Date and Time (UTC): 2025-03-13 20:55:30
+// Current User's Login: JLSmart13
+
+  // Initialize image hierarchy for organizing media
+  function initializeImageHierarchy() {
+    imageHierarchy = {
+      boards: new Map() // Map of board name -> Map of thread ID -> thread data
+    };
+  }
+  
+  // Helper function to safely create a URL
+  function safeCreateURL(url, base) {
+    try {
+      return new URL(url, base);
+    } catch (e) {
+      console.error('Invalid URL:', url, base);
+      return null;
+    }
+  }
+  
+  // Helper function to handle fetch errors gracefully
+  async function safeFetch(url, options = {}) {
+    try {
+      const response = await fetch(url, {
+        ...options,
+        credentials: 'omit',
+        timeout: 10000 // 10 second timeout
+      });
+      return response;
+    } catch (error) {
+      console.error('Fetch error:', error);
+      throw new Error(`Failed to fetch ${url}: ${error.message}`);
+    }
+  }
+  
+  // Helper function to extract text from an element safely
+  function safeExtractText(element) {
+    if (!element) return '';
+    return element.textContent.trim();
+  }
+  
+  // Helper function to debounce UI updates for better performance
+  function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
+  
+  // Debounced version of gallery update function to prevent UI freezing
+  const debouncedUpdateGallery = debounce((mode) => {
+    updateGalleryView(mode);
+  }, 500);
+  
+  // Enhanced function to show lightbox for both images and videos
+  function showLightbox(mediaUrl) {
+    // Create lightbox if it doesn't exist
+    let lightbox = document.getElementById('customLightbox');
+    if (!lightbox) {
+      lightbox = document.createElement('div');
+      lightbox.id = 'customLightbox';
+      lightbox.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.9);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+      `;
+      
+      // Close on click outside the media
+      lightbox.addEventListener('click', (e) => {
+        if (e.target === lightbox) {
+          lightbox.remove();
+        }
+      });
+      
+      // Close on ESC key
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && document.getElementById('customLightbox')) {
+          lightbox.remove();
+        }
+      });
+      
+      document.body.appendChild(lightbox);
+    } else {
+      // Clear existing content
+      lightbox.innerHTML = '';
+    }
+    
+    // Determine media type
+    const isVideo = mediaUrl.match(/\.(mp4|webm|mov|avi|wmv|flv|mkv)$/i);
+    
+    if (isVideo) {
+      // Create video element
+      const video = document.createElement('video');
+      video.controls = true;
+      video.autoplay = true;
+      video.style.cssText = `
+        max-width: 90%;
+        max-height: 90%;
+      `;
+      
+      const source = document.createElement('source');
+      source.src = mediaUrl;
+      source.type = `video/${mediaUrl.split('.').pop()}`;
+      
+      video.appendChild(source);
+      lightbox.appendChild(video);
+      
+      // Add a fallback link for video
+      const fallbackLink = document.createElement('a');
+      fallbackLink.href = mediaUrl;
+      fallbackLink.target = '_blank';
+      fallbackLink.textContent = 'Open video in new tab';
+      fallbackLink.style.cssText = `
+        position: absolute;
+        bottom: 20px;
+        color: white;
+        text-decoration: underline;
+      `;
+      lightbox.appendChild(fallbackLink);
+    } else {
+      // Create image element
+      const img = document.createElement('img');
+      img.src = mediaUrl;
+      img.alt = 'Full-size image';
+      img.style.cssText = `
+        max-width: 90%;
+        max-height: 90%;
+      `;
+      lightbox.appendChild(img);
+    }
+  }
+  
+  // Function to show image information and options
+  function showImageInfo(thumbUrl, fullSizeUrl) {
+    // Create context menu if it doesn't exist
+    let contextMenu = document.getElementById('imageContextMenu');
+    if (!contextMenu) {
+      contextMenu = document.createElement('div');
+      contextMenu.id = 'imageContextMenu';
+      contextMenu.style.cssText = `
+        position: fixed;
+        background-color: #333;
+        border: 1px solid #555;
+        border-radius: 5px;
+        padding: 10px;
+        z-index: 1001;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+      `;
+      document.body.appendChild(contextMenu);
+      
+      // Close when clicking elsewhere
+      document.addEventListener('click', (e) => {
+        if (!contextMenu.contains(e.target) && document.getElementById('imageContextMenu')) {
+          contextMenu.remove();
+        }
+      });
+    }
+    
+    // Position at the cursor
+    contextMenu.style.left = `${mouseX}px`;
+    contextMenu.style.top = `${mouseY}px`;
+    
+    // Determine media type
+    const isVideo = fullSizeUrl.match(/\.(mp4|webm|mov|avi|wmv|flv|mkv)$/i);
+    const mediaType = isVideo ? 'Video' : 'Image';
+    
+    // Create content
+    contextMenu.innerHTML = `
+      <div style="margin-bottom: 10px; font-weight: bold;">${mediaType} Options</div>
+      <div style="margin-bottom: 5px; overflow-wrap: break-word; max-width: 300px;">
+        URL: <a href="${fullSizeUrl}" target="_blank" style="color: lightblue;">${fullSizeUrl.substring(0, 50)}${fullSizeUrl.length > 50 ? '...' : ''}</a>
+      </div>
+      <button id="openInNewTab" style="margin-right: 5px; padding: 5px;">Open in new tab</button>
+      <button id="copyUrl" style="padding: 5px;">Copy URL</button>
+    `;
+    
+    // Add event listeners for buttons
+    document.getElementById('openInNewTab').addEventListener('click', () => {
+      window.open(fullSizeUrl, '_blank');
+      contextMenu.remove();
     });
     
-    // Add keyboard shortcuts
+    document.getElementById('copyUrl').addEventListener('click', () => {
+      navigator.clipboard.writeText(fullSizeUrl).then(() => {
+        alert('URL copied to clipboard');
+        contextMenu.remove();
+      }).catch(err => {
+        console.error('Failed to copy URL:', err);
+        alert('Failed to copy URL');
+      });
+    });
+  }
+  
+  // Track mouse position for context menu
+  let mouseX = 0;
+  let mouseY = 0;
+  document.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });// Current Date and Time (UTC): 2025-03-13 20:57:03
+// Current User's Login: JLSmart13
+
+  // Track mouse position for context menu
+  let mouseX = 0;
+  let mouseY = 0;
+  document.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
+  
+  // Export data for backup or sharing
+  function exportGalleryData() {
+    if (foundImages.length === 0 && (!imageHierarchy || imageHierarchy.boards.size === 0)) {
+      alert('No gallery data to export');
+      return;
+    }
+    
+    // Prepare export data
+    const exportData = {
+      version: '1.0',
+      timestamp: Date.now(),
+      foundImages: foundImages,
+      processedImageUrls: Array.from(processedImageUrls),
+      processedPageUrls: Array.from(processedPageUrls),
+      crawlerStats: crawlerStats,
+      hierarchy: {
+        boards: Array.from(imageHierarchy.boards).map(([boardName, threads]) => {
+          return {
+            boardName,
+            threads: Array.from(threads).map(([threadId, threadData]) => {
+              return {
+                threadId,
+                title: threadData.title,
+                url: threadData.url,
+                images: threadData.images || [],
+                videos: threadData.videos || []
+              };
+            })
+          };
+        })
+      }
+    };
+    
+    // Convert to JSON and create download link
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `anonib_gallery_data_${new Date().toISOString().replace(/:/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  
+  // Import previously exported data
+  function importGalleryData() {
+    // Create file input
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const data = JSON.parse(event.target.result);
+          
+          // Verify it's valid gallery data
+          if (!data.version || !data.timestamp || !data.hierarchy) {
+            throw new Error('Invalid gallery data format');
+          }
+          
+          // Reset current data
+          foundImages = data.foundImages || [];
+          processedImageUrls = new Set(data.processedImageUrls || []);
+          processedPageUrls = new Set(data.processedPageUrls || []);
+          crawlerStats = data.crawlerStats || {
+            startTime: Date.now(),
+            pagesScanned: 0,
+            imagesFound: 0,
+            lastActive: Date.now()
+          };
+          
+          // Rebuild hierarchy
+          imageHierarchy = { boards: new Map() };
+          
+          if (data.hierarchy && data.hierarchy.boards) {
+            data.hierarchy.boards.forEach(boardData => {
+              const boardThreads = new Map();
+              
+              if (boardData.threads) {
+                boardData.threads.forEach(threadData => {
+                  boardThreads.set(threadData.threadId, {
+                    title: threadData.title || `Thread #${threadData.threadId}`,
+                    url: threadData.url || '',
+                    images: threadData.images || [],
+                    videos: threadData.videos || []
+                  });
+                });
+              }
+              
+              imageHierarchy.boards.set(boardData.boardName, boardThreads);
+            });
+          }
+          
+          // Update UI
+          updateGalleryView('crawler');
+          updateCounter();
+          
+          statusCounter.textContent = `Imported gallery data with ${foundImages.length} media items`;
+          
+        } catch (error) {
+          console.error('Error importing data:', error);
+          alert(`Error importing data: ${error.message}`);
+        }
+      };
+      
+      reader.readAsText(file);
+    };
+    
+    input.click();
+  }
+  
+  // Set up event listeners for the document
+  function setupGlobalEventListeners() {
+    // Listen for keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && galleryContainer.style.display !== 'none') {
-            galleryContainer.style.display = 'none';
-        }
-    });
-}
-
-// Show gallery and process current page
-function showGallery() {
-    galleryContainer.style.display = 'flex';
-    if (!isProcessing) {
-        processCurrentPage();
-    }
-}
-
-// Process current page images
-function processCurrentPage() {
-    isProcessing = true;
-    processedPageUrls.add(window.location.href);
-    
-    // Find all images on the page
-    const images = document.querySelectorAll('img');
-    const currentPageUrl = window.location.href;
-    
-    images.forEach(async img => {
-        const originalUrl = img.src;
-        if (!processedImageUrls.has(originalUrl)) {
-            processedImageUrls.add(originalUrl);
-            
-            // Create placeholder while resolving full size
-            const placeholderId = `img_${Math.random().toString(36).substr(2, 9)}`;
-            createImagePlaceholder(placeholderId);
-            
-            // Try to get full size version
-            const result = await attemptToResolveFullSizeImage(originalUrl, currentPageUrl);
-            updateOrAddImageInGallery(result.originalUrl, result.fullSizeUrl, placeholderId);
-        }
+      // Ctrl+S to save data
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        exportGalleryData();
+      }
+      
+      // Ctrl+O to open/import data
+      if (e.ctrlKey && e.key === 'o') {
+        e.preventDefault();
+        importGalleryData();
+      }
+      
+      // Escape key to close modals is already handled in showLightbox
     });
     
-    isProcessing = false;
-    updateCounter();
-}
-
-// Initialize everything
-function init() {
-    createUI();
-    createFailureLogButton();
-    setupEventListeners();
-    
-    // Load existing failure log
-    const logKey = `${getStorageKeyPrefix()}${currentMethod}_resolutionFailures`;
-    const savedFailures = loadFromStorage(logKey);
-    if (savedFailures) {
-        imageResolutionFailures = savedFailures;
-        if (imageResolutionFailures.length > 0 && window.failureLogButton) {
-            window.failureLogButton.style.display = 'inline-block';
-        }
+    // Detect if we're on AnonIB site
+    if (isAnonibUrl(window.location.href)) {
+      initializeAnonibSiteHandler();
     }
-}
+  }
+  
+  // On script load, check if we need specialized handlers
+  (function checkSiteType() {
+    // Handle different site types
+    if (isAnonibUrl(window.location.href)) {
+      console.log('AnonIB site detected, initializing specialized crawler...');
+      initializeImageHierarchy();
+      setupGlobalEventListeners();
+    }
+  })();// Current Date and Time (UTC): 2025-03-13 20:59:30
+// Current User's Login: JLSmart13
 
-// Start the script
-init();
-})();
+  // On script load, check if we need specialized handlers
+  (function checkSiteType() {
+    // Handle different site types
+    if (isAnonibUrl(window.location.href)) {
+      console.log('AnonIB site detected, initializing specialized crawler...');
+      initializeImageHierarchy();
+      setupGlobalEventListeners();
+    }
+  })();
+
+  // Add unit tests for the AnonIB crawler functions
+  function testAnonibCrawlerFunctions() {
+    // This function would be used during development to test the crawler functions
+    
+    // Test URL parsing
+    console.log('Testing URL functions:');
+    
+    const testUrls = [
+      'https://anonib.pk/',
+      'https://anonib.pk/ak/',
+      'https://anonib.pk/ak/index.html',
+      'https://anonib.pk/ak/catalog.html',
+      'https://anonib.pk/ak/res/12345.html',
+      'https://example.com/not/anonib'
+    ];
+    
+    for (const url of testUrls) {
+      console.log(`URL: ${url}`);
+      console.log(`  isAnonibUrl: ${isAnonibUrl(url)}`);
+      console.log(`  isAnonibThreadUrl: ${isAnonibThreadUrl(url)}`);
+      console.log(`  isAnonibBoardUrl: ${isAnonibBoardUrl(url)}`);
+      console.log(`  isAnonibCatalogUrl: ${isAnonibCatalogUrl(url)}`);
+      console.log(`  boardName: ${extractAnonibBoardName(url)}`);
+      console.log(`  threadId: ${extractAnonibThreadId(url)}`);
+      console.log('---');
+    }
+    
+    // Test HTML parsing with sample HTML
+    const testThreadHTML = `
+      <div class="innerOP">
+        <span class="labelSubject">Test Thread Title</span>
+        <div class="divMessage">This is the message content</div>
+        <a class="imgLink" href="/file/12345.jpg">Image Link</a>
+        <a class="imgLink" href="/file/67890.mp4" data-filemime="video/mp4">Video Link</a>
+      </div>
+    `;
+    
+    const testCatalogHTML = `
+      <div class="catalogCell">
+        <a class="linkThumb" href="/ak/res/12345.html">Thread Link</a>
+        <span class="labelSubject">Thread with subject</span>
+        <div class="divMessage">Thread message</div>
+      </div>
+      <div class="catalogCell">
+        <a class="linkThumb" href="/ak/res/67890.html">Thread Link</a>
+        <span class="labelSubject"></span>
+        <div class="divMessage">Thread with no subject</div>
+      </div>
+    `;
+    
+    console.log('Testing HTML parsing:');
+    
+    // Parse test HTML
+    const threadParser = new DOMParser();
+    const threadDoc = threadParser.parseFromString(testThreadHTML, 'text/html');
+    
+    const catalogParser = new DOMParser();
+    const catalogDoc = catalogParser.parseFromString(testCatalogHTML, 'text/html');
+    
+    // Test thread parsing
+    console.log('Thread parsing:');
+    const subjectElement = threadDoc.querySelector('.innerOP .labelSubject');
+    const messageElement = threadDoc.querySelector('.innerOP .divMessage');
+    const imgLinks = threadDoc.querySelectorAll('a.imgLink');
+    
+    console.log(`  Subject: ${safeExtractText(subjectElement)}`);
+    console.log(`  Message: ${safeExtractText(messageElement)}`);
+    console.log(`  Image links found: ${imgLinks.length}`);
+    
+    imgLinks.forEach((link, i) => {
+      const href = link.getAttribute('href');
+      const mimeType = link.getAttribute('data-filemime') || '';
+      const isVideo = mimeType.includes('video') || href.match(/\.(mp4|webm|mov|avi|wmv|flv|mkv)$/i);
+      
+      console.log(`  Link ${i+1}: ${href} (${isVideo ? 'Video' : 'Image'})`);
+    });
+    
+    // Test catalog parsing
+    console.log('Catalog parsing:');
+    const threadCells = catalogDoc.querySelectorAll('.catalogCell');
+    
+    console.log(`  Thread cells found: ${threadCells.length}`);
+    
+    threadCells.forEach((cell, i) => {
+      const threadLink = cell.querySelector('.linkThumb');
+      const threadHref = threadLink ? threadLink.getAttribute('href') : '';
+      
+      const subjectText = safeExtractText(cell.querySelector('.labelSubject'));
+      const messageText = safeExtractText(cell.querySelector('.divMessage'));
+      
+      let threadTitle = '';
+      if (subjectText) {
+        threadTitle = subjectText;
+      } else if (messageText) {
+        threadTitle = messageText.length > 50 ? messageText.substring(0, 47) + '...' : messageText;
+      }
+      
+      console.log(`  Thread ${i+1}: ${threadHref}`);
+      console.log(`    Title: ${threadTitle}`);
+    });
+  }
+  
+  // Helper function to parse a thread info from a catalog cell
+  function parseThreadInfoFromCatalogCell(cell) {
+    if (!cell) return null;
+    
+    const threadLink = cell.querySelector('.linkThumb');
+    if (!threadLink) return null;
+    
+    const threadHref = threadLink.getAttribute('href');
+    if (!threadHref) return null;
+    
+    // Extract thread ID from href
+    let threadId = '';
+    const threadIdMatch = threadHref.match(/\/res\/(\d+)\.html/);
+    if (threadIdMatch && threadIdMatch[1]) {
+      threadId = threadIdMatch[1];
+    } else {
+      return null;
+    }
+    
+    // Find the thread title
+    let threadTitle = '';
+    
+    // First check for labelSubject
+    const subjectElement = cell.querySelector('.labelSubject');
+    if (subjectElement && subjectElement.textContent.trim()) {
+      threadTitle = subjectElement.textContent.trim();
+    }
+    
+    // If no subject, try the message
+    if (!threadTitle) {
+      const messageElement = cell.querySelector('.divMessage');
+      if (messageElement && messageElement.textContent.trim()) {
+        threadTitle = messageElement.textContent.trim();
+        
+        // Truncate long message titles
+        if (threadTitle.length > 50) {
+          threadTitle = threadTitle.substring(0, 47) + '...';
+        }
+      }
+    }
+    
+    // If still no title, use generic with ID
+    if (!threadTitle) {
+      threadTitle = `Thread #${threadId}`;
+    }
+    
+    // Get the full URL
+    const fullUrl = new URL(threadHref, window.location.origin).href;
+    
+    return {
+      id: threadId,
+      title: threadTitle,
+      url: fullUrl
+    };
+  }
+  
+  // Final cleanup and integration
+  console.log('AnonIB crawler module loaded and ready.');// Current Date and Time (UTC): 2025-03-13 21:01:12
+// Current User's Login: JLSmart13
+
+  // Final cleanup and integration
+  console.log('AnonIB crawler module loaded and ready.');
+
+  // Initialize global variables and data structures if not already set
+  if (typeof foundImages === 'undefined') {
+    var foundImages = [];
+  }
+  
+  if (typeof processedImageUrls === 'undefined') {
+    var processedImageUrls = new Set();
+  }
+  
+  if (typeof processedPageUrls === 'undefined') {
+    var processedPageUrls = new Set();
+  }
+  
+  if (typeof pendingLinks === 'undefined') {
+    var pendingLinks = [];
+  }
+  
+  if (typeof imageHierarchy === 'undefined') {
+    var imageHierarchy = {
+      boards: new Map()
+    };
+  }
+  
+  if (typeof isCrawlerActive === 'undefined') {
+    var isCrawlerActive = false;
+  }
+  
+  if (typeof isCrawlerPaused === 'undefined') {
+    var isCrawlerPaused = false;
+  }
+  
+  if (typeof isProcessing === 'undefined') {
+    var isProcessing = false;
+  }
+  
+  if (typeof currentMethod === 'undefined') {
+    var currentMethod = 'standard';
+  }
+  
+  if (typeof crawlerStats === 'undefined') {
+    var crawlerStats = {
+      startTime: 0,
+      pagesScanned: 0,
+      imagesFound: 0,
+      lastActive: 0
+    };
+  }
+  
+  // Get UI elements
+  const galleryView = document.getElementById('galleryView');
+  const statusCounter = document.getElementById('statusCounter');
+  
+  // Additional helpers for AnonIB-specific processing
+  
+  // Function to parse image URLs from different contexts
+  function parseImageUrlsFromPage(doc) {
+    // Find all image links
+    const imgLinks = doc.querySelectorAll('a.imgLink');
+    const results = {
+      images: [],
+      videos: []
+    };
+    
+    imgLinks.forEach(imgLink => {
+      const href = imgLink.getAttribute('href');
+      if (!href) return;
+      
+      const fullUrl = new URL(href, window.location.href).href;
+      
+      // Skip if already processed
+      if (processedImageUrls.has(fullUrl)) return;
+      
+      // Mark as processed
+      processedImageUrls.add(fullUrl);
+      
+      // Determine if it's an image or video by examining the URL or data-mime attribute
+      const mimeType = imgLink.getAttribute('data-filemime') || '';
+      const isVideo = mimeType.includes('video') || 
+                    fullUrl.match(/\.(mp4|webm|mov|avi|wmv|flv|mkv)$/i);
+      
+      if (isVideo) {
+        results.videos.push(fullUrl);
+      } else {
+        results.images.push(fullUrl);
+      }
+    });
+    
+    return results;
+  }
+  
+  // Function to safely add an image/video to a thread
+  function addMediaToThread(boardName, threadId, mediaUrl, isVideo) {
+    // Ensure board exists
+    if (!imageHierarchy.boards.has(boardName)) {
+      imageHierarchy.boards.set(boardName, new Map());
+    }
+    
+    const boardThreads = imageHierarchy.boards.get(boardName);
+    
+    // Ensure thread exists
+    if (!boardThreads.has(threadId)) {
+      boardThreads.set(threadId, {
+        title: `Thread #${threadId}`,
+        url: `${window.location.origin}/${boardName}/res/${threadId}.html`,
+        images: [],
+        videos: []
+      });
+    }
+    
+    const threadData = boardThreads.get(threadId);
+    
+    // Add media to appropriate array if not already there
+    if (isVideo) {
+      if (!threadData.videos.includes(mediaUrl)) {
+        threadData.videos.push(mediaUrl);
+      }
+    } else {
+      if (!threadData.images.includes(mediaUrl)) {
+        threadData.images.push(mediaUrl);
+      }
+    }
+  }
+  
+  // Function to help with error recovery during crawling
+  function recoverFromCrawlerError(error) {
+    console.error('Crawler error:', error);
+    statusCounter.textContent = `Error: ${error.message} - attempting to continue...`;
+    
+    // If we have pending links, try to continue with the next one
+    if (pendingLinks.length > 0 && isCrawlerActive) {
+      const nextUrl = pendingLinks.shift();
+      
+      // Try to continue with a delay
+      setTimeout(async () => {
+        try {
+          const response = await fetch(nextUrl, { credentials: 'omit' });
+          if (response.ok) {
+            const html = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            
+            // Process the page
+            collectAnonibImages(nextUrl, doc);
+            
+            // Update counters
+            crawlerStats.pagesScanned++;
+            crawlerStats.lastActive = Date.now();
+            
+            // Continue crawler loop
+            processCrawlerQueue();
+          }
+        } catch (recoveryError) {
+          console.error('Failed to recover crawler:', recoveryError);
+        }
+      }, 2000); // Wait 2 seconds before trying to continue
+    } else {
+      // We can't recover, stop the crawler
+      isCrawlerActive = false;
+      isProcessing = false;
+      statusCounter.textContent = `Crawler stopped due to error: ${error.message}`;
+    }
+  }
+  
+  // Function to process the crawler queue
+  async function processCrawlerQueue() {
+    if (!isCrawlerActive || isCrawlerPaused) {
+      return;
+    }
+    
+    if (pendingLinks.length === 0) {
+      // Crawler queue is empty, complete crawling
+      isCrawlerActive = false;
+      isProcessing = false;
+      statusCounter.textContent = `Completed! Scanned ${crawlerStats.pagesScanned} pages, found ${foundImages.length} media items`;
+      return;
+    }
+    
+    try {
+      // Get the next URL
+      const nextUrl = pendingLinks.shift();
+      
+      // Skip if already processed
+      if (processedPageUrls.has(nextUrl)) {
+        processCrawlerQueue();
+        return;
+      }
+      
+      // Update status
+      statusCounter.textContent = `Processing: ${nextUrl}`;
+      
+      // Fetch the page
+      const response = await fetch(nextUrl, { credentials: 'omit' });
+      if (!response.ok) {
+        console.warn(`Failed to fetch ${nextUrl}: ${response.status} ${response.statusText}`);
+        processCrawlerQueue();
+        return;
+      }
+      
+      const html = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      // Process the page
+      collectAnonibImages(nextUrl, doc);
+      
+      // Update counters
+      crawlerStats.pagesScanned++;
+      crawlerStats.lastActive = Date.now();
+      
+      // Add a small delay to prevent overwhelming the server
+      setTimeout(processCrawlerQueue, 500);
+      
+    } catch (error) {
+      recoverFromCrawlerError(error);
+    }
+  }
+  
+  // Additional UI enhancements for the AnonIB crawler
+  
+  // Function to add drag-and-drop functionality for reordering threads
+  function enableDragAndDrop() {
+    const threadSections = document.querySelectorAll('.thread-section');
+    
+    threadSections.forEach(section => {
+      section.setAttribute('draggable', 'true');
+      
+      section.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', section.dataset.threadId);
+        section.classList.add('dragging');
+      });
+      
+      section.addEventListener('dragend', () => {
+        section.classList.remove('dragging');
+      });
+      
+      section.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        section.classList.add('dragover');
+      });
+      
+      section.addEventListener('dragleave', () => {
+        section.classList.remove('dragover');
+      });
+      
+      section.addEventListener('drop', (e) => {
+        e.preventDefault();
+        section.classList.remove('dragover');
+        
+        const sourceThreadId = e.dataTransfer.getData('text/plain');
+        const targetThreadId = section.dataset.threadId;
+        
+        if (sourceThreadId && targetThreadId && sourceThreadId !== targetThreadId) {
+          // Reorder logic would be implemented here
+          console.log(`Reorder: ${sourceThreadId} to position of ${targetThreadId}`);
+        }
+      });
+    });
+  }
+}// Current Date and Time (UTC): 2025-03-13 21:02:34
+// Current User's Login: JLSmart13
+
+  // Function to add drag-and-drop functionality for reordering threads
+  function enableDragAndDrop() {
+    const threadSections = document.querySelectorAll('.thread-section');
+    
+    threadSections.forEach(section => {
+      section.setAttribute('draggable', 'true');
+      
+      section.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', section.dataset.threadId);
+        section.classList.add('dragging');
+      });
+      
+      section.addEventListener('dragend', () => {
+        section.classList.remove('dragging');
+      });
+      
+      section.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        section.classList.add('dragover');
+      });
+      
+      section.addEventListener('dragleave', () => {
+        section.classList.remove('dragover');
+      });
+      
+      section.addEventListener('drop', (e) => {
+        e.preventDefault();
+        section.classList.remove('dragover');
+        
+        const sourceThreadId = e.dataTransfer.getData('text/plain');
+        const targetThreadId = section.dataset.threadId;
+        
+        if (sourceThreadId && targetThreadId && sourceThreadId !== targetThreadId) {
+          // Reorder logic would be implemented here
+          console.log(`Reorder: ${sourceThreadId} to position of ${targetThreadId}`);
+        }
+      });
+    });
+  }
+  
+  // Function to add filtering capabilities to the gallery view
+  function addFilteringCapabilities() {
+    // Create filter controls if they don't exist
+    let filterControls = document.getElementById('galleryFilters');
+    if (!filterControls) {
+      filterControls = document.createElement('div');
+      filterControls.id = 'galleryFilters';
+      filterControls.className = 'gallery-filters';
+      
+      // Add style for filters
+      const filterStyle = `
+        .gallery-filters {
+          margin: 10px 0;
+          padding: 10px;
+          background-color: #333;
+          border-radius: 5px;
+        }
+        
+        .filter-row {
+          display: flex;
+          margin-bottom: 5px;
+          align-items: center;
+        }
+        
+        .filter-label {
+          margin-right: 10px;
+          width: 80px;
+        }
+        
+        .filter-input {
+          flex: 1;
+          padding: 5px;
+          background-color: #222;
+          color: white;
+          border: 1px solid #555;
+          border-radius: 3px;
+        }
+        
+        .filter-buttons {
+          margin-top: 10px;
+          display: flex;
+          justify-content: flex-end;
+        }
+        
+        .filter-button {
+          padding: 5px 10px;
+          margin-left: 10px;
+          background-color: #444;
+          color: white;
+          border: none;
+          border-radius: 3px;
+          cursor: pointer;
+        }
+        
+        .filter-button:hover {
+          background-color: #555;
+        }
+        
+        .filter-button.primary {
+          background-color: #2967a0;
+        }
+        
+        .filter-button.primary:hover {
+          background-color: #357ab8;
+        }
+        
+        .media-type-filter {
+          display: flex;
+          gap: 10px;
+        }
+        
+        .media-type-filter label {
+          display: flex;
+          align-items: center;
+          cursor: pointer;
+        }
+        
+        .media-type-filter input {
+          margin-right: 5px;
+        }
+      `;
+      
+      const filterStyleElement = document.createElement('style');
+      filterStyleElement.textContent = filterStyle;
+      document.head.appendChild(filterStyleElement);
+      
+      // Create filter content
+      filterControls.innerHTML = `
+        <h3>Filter Gallery</h3>
+        
+        <div class="filter-row">
+          <div class="filter-label">Board:</div>
+          <select id="boardFilter" class="filter-input">
+            <option value="">All Boards</option>
+          </select>
+        </div>
+        
+        <div class="filter-row">
+          <div class="filter-label">Thread:</div>
+          <input type="text" id="threadFilter" class="filter-input" placeholder="Search thread titles...">
+        </div>
+        
+        <div class="filter-row">
+          <div class="filter-label">Media Type:</div>
+          <div class="media-type-filter">
+            <label>
+              <input type="checkbox" id="showImages" checked> 
+              Images
+            </label>
+            <label>
+              <input type="checkbox" id="showVideos" checked> 
+              Videos
+            </label>
+          </div>
+        </div>
+        
+        <div class="filter-buttons">
+          <button id="applyFilters" class="filter-button primary">Apply Filters</button>
+          <button id="resetFilters" class="filter-button">Reset Filters</button>
+        </div>
+      `;
+      
+      // Add filters to the UI
+      const controlsContainer = document.getElementById('controlsContainer');
+      if (controlsContainer) {
+        controlsContainer.appendChild(filterControls);
+      }
+      
+      // Populate board filter
+      const boardFilter = document.getElementById('boardFilter');
+      if (boardFilter && imageHierarchy && imageHierarchy.boards.size > 0) {
+        imageHierarchy.boards.forEach((_, boardName) => {
+          const option = document.createElement('option');
+          option.value = boardName;
+          option.textContent = boardName;
+          boardFilter.appendChild(option);
+        });
+      }
+      
+      // Add event listeners for filter buttons
+      const applyFiltersButton = document.getElementById('applyFilters');
+      if (applyFiltersButton) {
+        applyFiltersButton.addEventListener('click', () => {
+          applyGalleryFilters();
+        });
+      }
+      
+      const resetFiltersButton = document.getElementById('resetFilters');
+      if (resetFiltersButton) {
+        resetFiltersButton.addEventListener('click', () => {
+          resetGalleryFilters();
+        });
+      }
+    }
+  }
+  
+  // Function to apply filters to gallery view
+  function applyGalleryFilters() {
+    const boardFilter = document.getElementById('boardFilter');
+    const threadFilter = document.getElementById('threadFilter');
+    const showImages = document.getElementById('showImages');
+    const showVideos = document.getElementById('showVideos');
+    
+    if (!boardFilter || !threadFilter || !showImages || !showVideos) return;
+    
+    const selectedBoard = boardFilter.value;
+    const threadSearch = threadFilter.value.toLowerCase();
+    const displayImages = showImages.checked;
+    const displayVideos = showVideos.checked;
+    
+    // Apply filters
+    const boardSections = document.querySelectorAll('.board-section');
+    boardSections.forEach(boardSection => {
+      const boardHeader = boardSection.querySelector('.board-header');
+      const boardName = boardHeader ? boardHeader.textContent.split(' ')[0] : '';
+      
+      let showBoard = true;
+      
+      // Filter by board name
+      if (selectedBoard && boardName !== selectedBoard) {
+        showBoard = false;
+      }
+      
+      // Apply thread filters within boards
+      const threadSections = boardSection.querySelectorAll('.thread-section');
+      let visibleThreads = 0;
+      
+      threadSections.forEach(threadSection => {
+        const threadHeader = threadSection.querySelector('.thread-header');
+        const threadTitle = threadHeader ? threadHeader.textContent.toLowerCase() : '';
+        
+        let showThread = true;
+        
+        // Filter by thread title
+        if (threadSearch && !threadTitle.includes(threadSearch)) {
+          showThread = false;
+        }
+        
+        // Filter by media type
+        const hasImages = threadSection.querySelector('.images-section');
+        const hasVideos = threadSection.querySelector('.videos-section');
+        
+        if ((!displayImages && hasImages && !hasVideos) || 
+            (!displayVideos && hasVideos && !hasImages) ||
+            (!displayImages && !displayVideos)) {
+          showThread = false;
+        }
+        
+        // Show/hide thread
+        threadSection.style.display = showThread ? 'block' : 'none';
+        
+        if (showThread) visibleThreads++;
+      });
+      
+      // Show board only if it has visible threads
+      boardSection.style.display = (showBoard && visibleThreads > 0) ? 'block' : 'none';
+    });
+  }
+  
+  // Function to reset gallery filters
+  function resetGalleryFilters() {
+    const boardFilter = document.getElementById('boardFilter');
+    const threadFilter = document.getElementById('threadFilter');
+    const showImages = document.getElementById('showImages');
+    const showVideos = document.getElementById('showVideos');
+    
+    if (boardFilter) boardFilter.value = '';
+    if (threadFilter) threadFilter.value = '';
+    if (showImages) showImages.checked = true;
+    if (showVideos) showVideos.checked = true;
+    
+    // Show all boards and threads
+    const boardSections = document.querySelectorAll('.board-section');
+    boardSections.forEach(boardSection => {
+      boardSection.style.display = 'block';
+      
+      const threadSections = boardSection.querySelectorAll('.thread-section');
+      threadSections.forEach(threadSection => {
+        threadSection.style.display = 'block';
+      });
+    });
+  }
+  
+  // Function to update UI with statistics
+  function updateStatistics() {
+    if (!statusCounter) return;
+    
+    // Count total boards, threads, images, and videos
+    let totalBoards = 0;
+    let totalThreads = 0;
+    let totalImages = 0;
+    let totalVideos = 0;
+    
+    if (imageHierarchy && imageHierarchy.boards) {
+      totalBoards = imageHierarchy.boards.size;
+      
+      imageHierarchy.boards.forEach((threads) => {
+        totalThreads += threads.size;
+        
+        threads.forEach((threadData) => {
+          totalImages += threadData.images ? threadData.images.length : 0;
+          totalVideos += threadData.videos ? threadData.videos.length : 0;
+        });
+      });
+    }
+    
+    // Update status counter with statistics
+    statusCounter.textContent = `Stats: ${totalBoards} boards, ${totalThreads} threads, ${totalImages} images, ${totalVideos} videos`;
+  }
+  
+  // Help function to provide usage instructions
+  function showHelp() {
+    alert(`AnonIB Crawler Help:
+    
+1. Basic Usage:
+   - Click "Start AnonIB Crawler" to begin crawling the current site
+   - Use "Pause"/"Resume" to control the crawler
+   - "Stop Crawler" will end the current crawling session
+   - "Clear Results" removes all collected data
+
+2. Controls:
+   - Board sections and thread sections can be collapsed by clicking on their headers
+   - Right-click on images/videos for additional options
+   - Use filters to narrow down results by board, thread title, or media type
+
+3. Keyboard Shortcuts:
+   - Ctrl+S: Save/export gallery data
+   - Ctrl+O: Open/import gallery data
+   - ESC: Close any open lightbox or dialog
+
+4. Tips:
+   - The crawler is most efficient when started from a board catalog page
+   - You can crawl just the current thread by using the "Crawl Current Thread" button
+   - Exported data can be shared and imported on another browser
+
+For more information, check the documentation.`);
+  }
+}// Current Date and Time (UTC): 2025-03-13 21:04:10
+// Current User's Login: JLSmart13
+
+  // Help function to provide usage instructions
+  function showHelp() {
+    alert(`AnonIB Crawler Help:
+    
+1. Basic Usage:
+   - Click "Start AnonIB Crawler" to begin crawling the current site
+   - Use "Pause"/"Resume" to control the crawler
+   - "Stop Crawler" will end the current crawling session
+   - "Clear Results" removes all collected data
+
+2. Controls:
+   - Board sections and thread sections can be collapsed by clicking on their headers
+   - Right-click on images/videos for additional options
+   - Use filters to narrow down results by board, thread title, or media type
+
+3. Keyboard Shortcuts:
+   - Ctrl+S: Save/export gallery data
+   - Ctrl+O: Open/import gallery data
+   - ESC: Close any open lightbox or dialog
+
+4. Tips:
+   - The crawler is most efficient when started from a board catalog page
+   - You can crawl just the current thread by using the "Crawl Current Thread" button
+   - Exported data can be shared and imported on another browser
+
+For more information, check the documentation.`);
+  }
+  
+  // Function to generate download links for batch downloading
+  function generateDownloadLinks() {
+    // Create downloadable links if there are images found
+    if (foundImages.length === 0) {
+      alert('No images found to generate download links');
+      return;
+    }
+    
+    // Create modal for download links
+    const downloadModal = document.createElement('div');
+    downloadModal.id = 'downloadLinksModal';
+    downloadModal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1001;
+    `;
+    
+    // Create modal content
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `
+      width: 80%;
+      max-width: 800px;
+      max-height: 80%;
+      background-color: #333;
+      border-radius: 5px;
+      padding: 20px;
+      overflow-y: auto;
+      position: relative;
+    `;
+    
+    // Close button
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '×';
+    closeButton.style.cssText = `
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: none;
+      border: none;
+      color: white;
+      font-size: 24px;
+      cursor: pointer;
+    `;
+    closeButton.addEventListener('click', () => {
+      downloadModal.remove();
+    });
+    modalContent.appendChild(closeButton);
+    
+    // Title
+    const title = document.createElement('h3');
+    title.textContent = 'Download Links';
+    title.style.cssText = `
+      margin-top: 0;
+      margin-bottom: 20px;
+    `;
+    modalContent.appendChild(title);
+    
+    // Create tabs for different download formats
+    const tabsContainer = document.createElement('div');
+    tabsContainer.style.cssText = `
+      display: flex;
+      margin-bottom: 15px;
+      border-bottom: 1px solid #555;
+    `;
+    
+    const tabs = [
+      { id: 'plainTextTab', text: 'Plain Text' },
+      { id: 'htmlListTab', text: 'HTML List' },
+      { id: 'scriptTab', text: 'Download Script' }
+    ];
+    
+    tabs.forEach((tab, index) => {
+      const tabButton = document.createElement('button');
+      tabButton.id = tab.id;
+      tabButton.textContent = tab.text;
+      tabButton.style.cssText = `
+        padding: 8px 15px;
+        background-color: ${index === 0 ? '#444' : '#333'};
+        color: white;
+        border: none;
+        border-bottom: 2px solid ${index === 0 ? '#4caf50' : 'transparent'};
+        cursor: pointer;
+        margin-right: 5px;
+      `;
+      
+      tabButton.addEventListener('click', () => {
+        // Update active tab
+        document.querySelectorAll('[id$="Tab"]').forEach(t => {
+          t.style.backgroundColor = '#333';
+          t.style.borderBottomColor = 'transparent';
+        });
+        tabButton.style.backgroundColor = '#444';
+        tabButton.style.borderBottomColor = '#4caf50';
+        
+        // Show content for active tab
+        document.querySelectorAll('[id$="Content"]').forEach(c => {
+          c.style.display = 'none';
+        });
+        document.getElementById(tab.id.replace('Tab', 'Content')).style.display = 'block';
+      });
+      
+      tabsContainer.appendChild(tabButton);
+    });
+    
+    modalContent.appendChild(tabsContainer);
+    
+    // Create content containers for each tab
+    const plainTextContent = document.createElement('div');
+    plainTextContent.id = 'plainTextContent';
+    plainTextContent.style.display = 'block';
+    
+    const htmlListContent = document.createElement('div');
+    htmlListContent.id = 'htmlListContent';
+    htmlListContent.style.display = 'none';
+    
+    const scriptContent = document.createElement('div');
+    scriptContent.id = 'scriptContent';
+    scriptContent.style.display = 'none';
+    
+    // Create plain text links
+    const plainTextArea = document.createElement('textarea');
+    plainTextArea.style.cssText = `
+      width: 100%;
+      height: 300px;
+      background-color: #222;
+      color: #ddd;
+      border: 1px solid #555;
+      padding: 10px;
+      font-family: monospace;
+      resize: vertical;
+    `;
+    
+    // Generate the content based on hierarchy
+    let plainTextContent = '';
+    
+    if (imageHierarchy && imageHierarchy.boards.size > 0) {
+      imageHierarchy.boards.forEach((threads, boardName) => {
+        plainTextContent += `# Board: ${boardName}\n\n`;
+        
+        threads.forEach((threadData, threadId) => {
+          plainTextContent += `## ${threadData.title}\n`;
+          plainTextContent += `## Thread URL: ${threadData.url}\n\n`;
+          
+          if (threadData.images && threadData.images.length > 0) {
+            plainTextContent += `### Images (${threadData.images.length}):\n`;
+            threadData.images.forEach(imgUrl => {
+              plainTextContent += `${imgUrl}\n`;
+            });
+            plainTextContent += '\n';
+          }
+          
+          if (threadData.videos && threadData.videos.length > 0) {
+            plainTextContent += `### Videos (${threadData.videos.length}):\n`;
+            threadData.videos.forEach(videoUrl => {
+              plainTextContent += `${videoUrl}\n`;
+            });
+            plainTextContent += '\n';
+          }
+          
+          plainTextContent += '---\n\n';
+        });
+        
+        plainTextContent += '==========\n\n';
+      });
+    } else {
+      foundImages.forEach(url => {
+        plainTextContent += url + '\n';
+      });
+    }
+    
+    plainTextArea.value = plainTextContent;
+    
+    const copyPlainTextButton = document.createElement('button');
+    copyPlainTextButton.textContent = 'Copy to Clipboard';
+    copyPlainTextButton.style.cssText = `
+      margin-top: 10px;
+      padding: 8px 15px;
+      background-color: #2967a0;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    `;
+    copyPlainTextButton.addEventListener('click', () => {
+      plainTextArea.select();
+      navigator.clipboard.writeText(plainTextArea.value).then(() => {
+        copyPlainTextButton.textContent = 'Copied!';
+        setTimeout(() => {
+          copyPlainTextButton.textContent = 'Copy to Clipboard';
+        }, 2000);
+      });
+    });
+    
+    plainTextContent.appendChild(plainTextArea);
+    plainTextContent.appendChild(copyPlainTextButton);
+    
+    // Create HTML list content
+    const htmlListArea = document.createElement('textarea');
+    htmlListArea.style.cssText = `
+      width: 100%;
+      height: 300px;
+      background-color: #222;
+      color: #ddd;
+      border: 1px solid #555;
+      padding: 10px;
+      font-family: monospace;
+      resize: vertical;
+    `;
+    
+    let htmlListText = '<!DOCTYPE html>\n<html>\n<head>\n  <title>AnonIB Media Links</title>\n  <style>\n';
+    htmlListText += '    body { font-family: Arial, sans-serif; background-color: #222; color: #ddd; padding: 20px; }\n';
+    htmlListText += '    h1, h2, h3 { margin-top: 20px; }\n';
+    htmlListText += '    a { color: #4caf50; text-decoration: none; }\n';
+    htmlListText += '    a:hover { text-decoration: underline; }\n';
+    htmlListText += '    hr { border-color: #555; }\n';
+    htmlListText += '    .media-links { margin-left: 20px; }\n';
+    htmlListText += '    .board { margin-bottom: 30px; }\n';
+    htmlListText += '    .thread { margin-bottom: 20px; padding-left: 20px; border-left: 3px solid #444; }\n';
+    htmlListText += '  </style>\n</head>\n<body>\n';
+    htmlListText += '  <h1>AnonIB Media Links</h1>\n';
+    htmlListText += '  <p>Generated on ' + new Date().toISOString() + '</p>\n\n';
+    
+    if (imageHierarchy && imageHierarchy.boards.size > 0) {
+      imageHierarchy.boards.forEach((threads, boardName) => {
+        htmlListText += `  <div class="board">\n    <h2>Board: ${boardName}</h2>\n\n`;
+        
+        threads.forEach((threadData, threadId) => {
+          htmlListText += `    <div class="thread">\n`;
+          htmlListText += `      <h3>${threadData.title}</h3>\n`;
+          htmlListText += `      <p>Thread URL: <a href="${threadData.url}" target="_blank">${threadData.url}</a></p>\n\n`;
+          
+          if (threadData.images && threadData.images.length > 0) {
+            htmlListText += `      <h4>Images (${threadData.images.length}):</h4>\n      <div class="media-links">\n`;
+            threadData.images.forEach(imgUrl => {
+              htmlListText += `        <a href="${imgUrl}" target="_blank">${imgUrl.split('/').pop()}</a><br>\n`;
+            });
+            htmlListText += '      </div>\n\n';
+          }
+          
+          if (threadData.videos && threadData.videos.length > 0) {
+            htmlListText += `      <h4>Videos (${threadData.videos.length}):</h4>\n      <div class="media-links">\n`;
+            threadData.videos.forEach(videoUrl => {
+              htmlListText += `        <a href="${videoUrl}" target="_blank">${videoUrl.split('/').pop()}</a><br>\n`;
+            });
+            htmlListText += '      </div>\n\n';
+          }
+          
+          htmlListText += '      <hr>\n    </div>\n\n';
+        });
+        
+        htmlListText += '  </div>\n\n';
+      });
+    } else {
+      htmlListText += '  <div class="media-links">\n';
+      foundImages.forEach(url => {
+        htmlListText += `    <a href="${url}" target="_blank">${url.split('/').pop()}</a><br>\n`;
+      });
+      htmlListText += '  </div>\n';
+    }
+    
+    htmlListText += '</body>\n</html>';
+    
+    htmlListArea.value = htmlListText;
+    
+    const copyHtmlButton = document.createElement('button');
+    copyHtmlButton.textContent = 'Copy HTML';
+    copyHtmlButton.style.cssText = `
+      margin-top: 10px;
+      padding: 8px 15px;
+      background-color: #2967a0;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    `;
+    copyHtmlButton.addEventListener('click', () => {
+      htmlListArea.select();
+      navigator.clipboard.writeText(htmlListArea.value).then(() => {
+        copyHtmlButton.textContent = 'Copied!';
+        setTimeout(() => {
+          copyHtmlButton.textContent = 'Copy HTML';
+        }, 2000);
+      });
+    });
+    
+    const downloadHtmlButton = document.createElement('button');
+    downloadHtmlButton.textContent = 'Download HTML File';
+    downloadHtmlButton.style.cssText = `
+      margin-top: 10px;
+      margin-left: 10px;
+      padding: 8px 15px;
+      background-color: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    `;
+    downloadHtmlButton.addEventListener('click', () => {
+      const blob = new Blob([htmlListArea.value], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'anonib_media_links.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+    
+    htmlListContent.appendChild(htmlListArea);
+    htmlListContent.appendChild(copyHtmlButton);
+    htmlListContent.appendChild(downloadHtmlButton);
+    
+    // Create download script content
+    const scriptArea = document.createElement('textarea');
+    scriptArea.style.cssText = `
+      width: 100%;
+      height: 300px;
+      background-color: #222;
+      color: #ddd;
+      border: 1px solid #555;
+      padding: 10px;
+      font-family: monospace;
+      resize: vertical;
+    `;
+    
+    let scriptText = '#!/bin/bash\n\n';
+    scriptText += '# AnonIB Media Downloader Script\n';
+    scriptText += '# Generated on ' + new Date().toISOString() + '\n\n';
+    scriptText += '# Create output directory\n';
+    scriptText += 'mkdir -p anonib_downloads\n\n';
+    scriptText += '# Download function with retry\n';
+    scriptText += 'download_file() {\n';
+    scriptText += '  url="$1"\n';
+    scriptText += '  output="$2"\n';
+    scriptText += '  tries=0\n';
+    scriptText += '  max_tries=3\n\n';
+    scriptText += '  while [ $tries -lt $max_tries ]; do\n';
+    scriptText += '    echo "Downloading $url to $output"\n';
+    scriptText += '    curl -s -L --retry 3 --connect-timeout 10 -o "$output" "$url" && return 0\n';
+    scriptText += '    tries=$((// Current Date and Time (UTC): 2025-03-13 21:07:02
+// Current User's Login: JLSmart13
+
+    scriptText += '  while [ $tries -lt $max_tries ]; do\n';
+    scriptText += '    echo "Downloading $url to $output"\n';
+    scriptText += '    curl -s -L --retry 3 --connect-timeout 10 -o "$output" "$url" && return 0\n';
+    scriptText += '    tries=$((tries+1))\n';
+    scriptText += '    if [ $tries -lt $max_tries ]; then\n';
+    scriptText += '      echo "Retry $tries/$max_tries..."\n';
+    scriptText += '      sleep 2\n';
+    scriptText += '    fi\n';
+    scriptText += '  done\n';
+    scriptText += '  echo "Failed to download $url after $max_tries attempts"\n';
+    scriptText += '  return 1\n';
+    scriptText += '}\n\n';
+    
+    if (imageHierarchy && imageHierarchy.boards.size > 0) {
+      let fileCount = 0;
+      
+      imageHierarchy.boards.forEach((threads, boardName) => {
+        scriptText += `# Board: ${boardName}\n`;
+        scriptText += `mkdir -p "anonib_downloads/${boardName}"\n\n`;
+        
+        threads.forEach((threadData, threadId) => {
+          const safeThreadTitle = threadData.title.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+          
+          scriptText += `# Thread: ${threadData.title} (${threadId})\n`;
+          scriptText += `mkdir -p "anonib_downloads/${boardName}/${threadId}_${safeThreadTitle}"\n\n`;
+          
+          if (threadData.images && threadData.images.length > 0) {
+            scriptText += `# Images (${threadData.images.length})\n`;
+            threadData.images.forEach(imgUrl => {
+              const filename = imgUrl.split('/').pop();
+              scriptText += `download_file "${imgUrl}" "anonib_downloads/${boardName}/${threadId}_${safeThreadTitle}/img_${fileCount}_${filename}"\n`;
+              fileCount++;
+            });
+            scriptText += '\n';
+          }
+          
+          if (threadData.videos && threadData.videos.length > 0) {
+            scriptText += `# Videos (${threadData.videos.length})\n`;
+            threadData.videos.forEach(videoUrl => {
+              const filename = videoUrl.split('/').pop();
+              scriptText += `download_file "${videoUrl}" "anonib_downloads/${boardName}/${threadId}_${safeThreadTitle}/vid_${fileCount}_${filename}"\n`;
+              fileCount++;
+            });
+            scriptText += '\n';
+          }
+          
+          scriptText += '\n';
+        });
+        
+        scriptText += '\n';
+      });
+    } else {
+      scriptText += '# All files\n';
+      foundImages.forEach((url, index) => {
+        const filename = url.split('/').pop();
+        scriptText += `download_file "${url}" "anonib_downloads/file_${index}_${filename}"\n`;
+      });
+    }
+    
+    scriptText += '\necho "Download complete!"\n';
+    
+    scriptArea.value = scriptText;
+    
+    const copyScriptButton = document.createElement('button');
+    copyScriptButton.textContent = 'Copy Script';
+    copyScriptButton.style.cssText = `
+      margin-top: 10px;
+      padding: 8px 15px;
+      background-color: #2967a0;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    `;
+    copyScriptButton.addEventListener('click', () => {
+      scriptArea.select();
+      navigator.clipboard.writeText(scriptArea.value).then(() => {
+        copyScriptButton.textContent = 'Copied!';
+        setTimeout(() => {
+          copyScriptButton.textContent = 'Copy Script';
+        }, 2000);
+      });
+    });
+    
+    const downloadScriptButton = document.createElement('button');
+    downloadScriptButton.textContent = 'Download Script';
+    downloadScriptButton.style.cssText = `
+      margin-top: 10px;
+      margin-left: 10px;
+      padding: 8px 15px;
+      background-color: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    `;
+    downloadScriptButton.addEventListener('click', () => {
+      const blob = new Blob([scriptArea.value], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'download_anonib_media.sh';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+    
+    const scriptNote = document.createElement('p');
+    scriptNote.textContent = 'Note: This bash script requires curl to be installed. Make the script executable with "chmod +x download_anonib_media.sh" before running.';
+    scriptNote.style.cssText = `
+      margin-top: 15px;
+      font-size: 14px;
+      color: #aaa;
+    `;
+    
+    scriptContent.appendChild(scriptArea);
+    scriptContent.appendChild(copyScriptButton);
+    scriptContent.appendChild(downloadScriptButton);
+    scriptContent.appendChild(scriptNote);
+    
+    // Add all tab contents to modal
+    modalContent.appendChild(plainTextContent);
+    modalContent.appendChild(htmlListContent);
+    modalContent.appendChild(scriptContent);
+    
+    downloadModal.appendChild(modalContent);
+    document.body.appendChild(downloadModal);
+    
+    // Add ESC key handler for modal
+    document.addEventListener('keydown', function closeModalOnEsc(e) {
+      if (e.key === 'Escape' && document.getElementById('downloadLinksModal')) {
+        downloadModal.remove();
+        document.removeEventListener('keydown', closeModalOnEsc);
+      }
+    });
+  }
+  
+  // Final steps to integrate the script
+  (function initializeScript() {
+    // Set up auto-detection of AnonIB site
+    if (isAnonibUrl(window.location.href)) {
+      console.log('AnonIB site detected, initializing crawler...');
+      
+      // Initialize data structures
+      initializeImageHierarchy();
+      
+      // Setup event listeners
+      setupGlobalEventListeners();
+      
+      // Initialize UI
+      initializeAnonibSiteHandler();
+    }
+  })();
+
+  // This marks the end of the AnonIB crawler integrated functionality
+}
