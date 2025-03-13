@@ -1180,168 +1180,320 @@
                 document.body.removeChild(popup);
             }
         });
-// Function to set the current method and update storage keys
-function setCurrentMethod(method) {
-    currentMethod = method;
-    STORAGE_KEYS = getStorageKeys(method);
-}
-
-// Function to save data to GM storage
-function saveToStorage(key, data) {
-    try {
-        GM_setValue(key, JSON.stringify(data));
-    } catch (error) {
-        console.error(`Error saving data to storage (${key}):`, error);
-        
-        // If the data is too large, try to save it in chunks
-        if (error.toString().includes('too large')) {
-            const chunkSize = 1000000; // 1MB chunks
-            if (Array.isArray(data)) {
-                const chunks = Math.ceil(data.length / chunkSize);
-                
-                // Clear any existing chunks
-                for (let i = 0; i < chunks; i++) {
-                    GM_deleteValue(`${key}_chunk_${i}`);
-                }
-                
-                // Save data in chunks
-                for (let i = 0; i < chunks; i++) {
-                    const chunk = data.slice(i * chunkSize, (i + 1) * chunkSize);
-                    GM_setValue(`${key}_chunk_${i}`, JSON.stringify(chunk));
-                }
-            }
-        }
+        // Add main click handler for floating button
+floatingButton.addEventListener('click', () => {
+    if (galleryContainer.style.display === 'none') {
+        showGallery();
     }
-}
+});
 
-// Function to load data from GM storage
-function loadFromStorage(key, defaultValue) {
-    try {
-        const data = GM_getValue(key);
-        if (data) {
-            return JSON.parse(data);
-        }
-        
-        // Check for chunked data
-        const chunkedData = [];
-        let chunkIndex = 0;
-        while (true) {
-            const chunk = GM_getValue(`${key}_chunk_${chunkIndex}`);
-            if (!chunk) break;
-            chunkedData.push(...JSON.parse(chunk));
-            chunkIndex++;
-        }
-        
-        if (chunkedData.length > 0) {
-            return chunkedData;
-        }
-        
-        return defaultValue;
-    } catch (error) {
-        console.error(`Error loading data from storage (${key}):`, error);
-        return defaultValue;
+// Add crawler button click handler
+crawlerButton.addEventListener('click', () => {
+    if (!isCrawlerActive) {
+        startCrawler();
     }
-}
+    crawlerControls.style.display = 'flex';
+});
 
-// Function to save crawler state to storage
-function saveCrawlerState() {
-    // Convert Set objects to arrays for storage
-    const processedUrlsArray = Array.from(processedPageUrls);
-    const processedImageUrlsArray = Array.from(processedImageUrls);
-    const domainsCrawledArray = Array.from(crawlerStats.domainsCrawled);
+// Start the crawler
+async function startCrawler() {
+    isCrawlerActive = true;
+    isCrawlerPaused = false;
+    crawlerStartTime = Date.now();
+    crawlerStats.startTime = Date.now();
     
-    // Update crawlerStats object
-    crawlerStats.pendingLinksCount = pendingLinks.length;
+    // Initialize with current page
+    pendingLinks = [window.location.href];
+    crawlerStats.domainsCrawled.add(new URL(window.location.href).hostname);
+    
+    // Start processing
+    processNextLink();
+}
+
+// Process next link in queue
+async function processNextLink() {
+    if (!isCrawlerActive || isCrawlerPaused || pendingLinks.length === 0) {
+        return;
+    }
+    
+    const nextLink = pendingLinks.shift();
+    if (!processedPageUrls.has(nextLink)) {
+        try {
+            const response = await fetch(nextLink);
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            
+            // Process images
+            const images = doc.querySelectorAll('img');
+            images.forEach(img => {
+                const imageUrl = img.src;
+                if (!processedImageUrls.has(imageUrl)) {
+                    processedImageUrls.add(imageUrl);
+                    addImageToGallery(imageUrl);
+                }
+            });
+            
+            // Add new links to queue
+            const links = doc.querySelectorAll('a');
+            links.forEach(link => {
+                const href = link.href;
+                if (isSameDomain(href, window.location.href) && !processedPageUrls.has(href)) {
+                    pendingLinks.push(href);
+                }
+            });
+            
+            processedPageUrls.add(nextLink);
+            crawlerStats.pagesScanned++;
+            updateCounter();
+        } catch (error) {
+            console.error('Error processing link:', error);
+        }
+    }
+    
+    // Continue processing
+    if (isCrawlerActive && !isCrawlerPaused) {
+        setTimeout(processNextLink, 500); // Rate limiting
+    }
+}
+
+// Pause crawler
+function pauseCrawler() {
+    isCrawlerPaused = true;
+    pauseResumeButton.textContent = '▶️ Resume';
     crawlerStats.lastActive = Date.now();
-    
-    // Save all data
-    saveToStorage(STORAGE_KEYS.PENDING_LINKS, pendingLinks);
-    saveToStorage(STORAGE_KEYS.PROCESSED_URLS, processedUrlsArray);
-    saveToStorage(STORAGE_KEYS.FOUND_IMAGES, foundImages);
-    saveToStorage(STORAGE_KEYS.CRAWL_IN_PROGRESS, {
-        active: isCrawlerActive,
-        paused: isCrawlerPaused
-    });
-    saveToStorage(STORAGE_KEYS.CRAWL_STATS, {
-        ...crawlerStats,
-        domainsCrawled: domainsCrawledArray
-    });
-    
-    // Store image metadata for each image (optional)
-    const imageMetadata = {};
-    imageGroups.forEach((value, key) => {
-        imageMetadata[key] = value;
-    });
-    saveToStorage(`${STORAGE_PREFIX}imageMetadata`, imageMetadata);
 }
 
-// Function to load crawler state from storage
-function loadCrawlerState() {
-    // Load stored data
-    const storedPendingLinks = loadFromStorage(STORAGE_KEYS.PENDING_LINKS, []);
-    const storedProcessedUrls = loadFromStorage(STORAGE_KEYS.PROCESSED_URLS, []);
-    const storedFoundImages = loadFromStorage(STORAGE_KEYS.FOUND_IMAGES, []);
-    const storedCrawlStatus = loadFromStorage(STORAGE_KEYS.CRAWL_IN_PROGRESS, { active: false, paused: false });
-    const storedCrawlStats = loadFromStorage(STORAGE_KEYS.CRAWL_STATS, {
-        pagesScanned: 0,
-        imagesFound: 0,
-        domainsCrawled: [],
-        startTime: null,
-        lastActive: null,
-        pendingLinksCount: 0
-    });
+// Resume crawler
+function resumeCrawler() {
+    isCrawlerPaused = false;
+    pauseResumeButton.textContent = '⏸️ Pause';
+    processNextLink();
+}
+// Get storage key prefix
+function getStorageKeyPrefix() {
+    return `imgCollector_${window.location.hostname}_`;
+}
+
+// Save to storage
+function saveToStorage(key, value) {
+    try {
+        GM_setValue(key, JSON.stringify(value));
+    } catch (e) {
+        console.error('Error saving to storage:', e);
+    }
+}
+
+// Load from storage
+function loadFromStorage(key) {
+    try {
+        const value = GM_getValue(key);
+        return value ? JSON.parse(value) : null;
+    } catch (e) {
+        console.error('Error loading from storage:', e);
+        return null;
+    }
+}
+
+// Save crawler state
+function saveCrawlerState() {
+    if (!currentMethod) return;
     
-    // Restore state
-    pendingLinks = storedPendingLinks;
-    processedPageUrls = new Set(storedProcessedUrls);
-    processedImageUrls = new Set();  // Will be rebuilt as we load images
-    foundImages = storedFoundImages;
-    
-    // Restore crawler status
-    isCrawlerActive = storedCrawlStatus.active;
-    isCrawlerPaused = storedCrawlStatus.paused;
-    
-    // Restore stats
-    crawlerStats = {
-        ...storedCrawlStats,
-        domainsCrawled: new Set(storedCrawlStats.domainsCrawled || [])
+    const state = {
+        processedPages: Array.from(processedPageUrls),
+        processedImages: Array.from(processedImageUrls),
+        pendingLinks: pendingLinks,
+        foundImages: foundImages,
+        imageGroups: Array.from(imageGroups.entries()),
+        stats: crawlerStats,
+        timestamp: Date.now()
     };
     
-    // Restore start time if it was saved
-    if (storedCrawlStats.startTime) {
-        crawlerStartTime = storedCrawlStats.startTime;
-    }
-    
-    // Restore image metadata
-    const imageMetadata = loadFromStorage(`${STORAGE_PREFIX}imageMetadata`, {});
-    imageGroups = new Map(Object.entries(imageMetadata));
-    
-    // Update UI based on loaded state
-    if (isCrawlerActive) {
-        crawlerProgress.style.display = 'block';
-        updateCrawlerProgress();
-    }
-    
-    return storedFoundImages.length > 0;
+    saveToStorage(`${getStorageKeyPrefix()}${currentMethod}_state`, state);
 }
 
-// Initialize the script and load state if available
+// Load crawler state
+function loadCrawlerState() {
+    if (!currentMethod) return;
+    
+    const state = loadFromStorage(`${getStorageKeyPrefix()}${currentMethod}_state`);
+    if (state) {
+        processedPageUrls = new Set(state.processedPages);
+        processedImageUrls = new Set(state.processedImages);
+        pendingLinks = state.pendingLinks;
+        foundImages = state.foundImages;
+        imageGroups = new Map(state.imageGroups);
+        crawlerStats = state.stats;
+        
+        // Restore images to gallery
+        foundImages.forEach(url => {
+            const fullSizeUrl = Array.from(imageGroups.entries())
+                .find(([, variants]) => variants.has(url))?.[0] || url;
+            addImageToGallery(url, fullSizeUrl);
+        });
+        
+        updateCounter();
+    }
+}
+// Helper function to check if a URL might be an image container
+function mightBeImageContainer(url) {
+    // Check for common image hosting or gallery URLs
+    const containerPatterns = [
+        /\/gallery\//i,
+        /\/photos?\//i,
+        /\/images?\//i,
+        /viewer/i,
+        /lightbox/i,
+        /\/(full|large|original)/i
+    ];
+    
+    return containerPatterns.some(pattern => pattern.test(url));
+}
+
+// Helper function to extract possible full-size image URLs from HTML
+function extractPossibleFullSizeImageUrls(html, baseUrl, originalImageUrl) {
+    const possibleUrls = new Set();
+    const originalBaseName = getImageBaseName(originalImageUrl);
+    
+    // Create a temporary DOM parser
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    
+    // Find all image elements and links
+    const elements = [
+        ...Array.from(doc.querySelectorAll('img[src]')),
+        ...Array.from(doc.querySelectorAll('a[href]')),
+        ...Array.from(doc.querySelectorAll('meta[content]'))
+    ];
+    
+    // Process each element
+    elements.forEach(element => {
+        let url = element.getAttribute('src') || 
+                 element.getAttribute('href') || 
+                 element.getAttribute('content');
+        
+        if (url && isImageUrl(url)) {
+            // Convert to absolute URL if needed
+            try {
+                url = new URL(url, baseUrl).href;
+                possibleUrls.add(url);
+            } catch (e) {
+                // Invalid URL, skip
+            }
+        }
+    });
+    
+    return Array.from(possibleUrls);
+}
+
+// Helper function to select the best image URL from a list
+function selectBestImageUrl(urls) {
+    if (urls.length === 0) return null;
+    if (urls.length === 1) return urls[0];
+    
+    // Score each URL based on various factors
+    const urlScores = urls.map(url => {
+        let score = 0;
+        const lowerUrl = url.toLowerCase();
+        
+        // Prefer URLs with quality indicators
+        if (lowerUrl.includes('original')) score += 5;
+        if (lowerUrl.includes('large')) score += 4;
+        if (lowerUrl.includes('full')) score += 3;
+        if (lowerUrl.includes('high')) score += 2;
+        
+        // Penalize URLs with size indicators
+        if (lowerUrl.includes('thumb')) score -= 3;
+        if (lowerUrl.includes('small')) score -= 2;
+        if (lowerUrl.includes('preview')) score -= 1;
+        
+        return { url, score };
+    });
+    
+    // Return URL with highest score
+    return urlScores.reduce((best, current) => 
+        current.score > best.score ? current : best
+    ).url;
+}
+// Add main event listeners
+function setupEventListeners() {
+    // Floating button click handler
+    floatingButton.addEventListener('click', () => {
+        if (galleryContainer.style.display === 'none') {
+            currentMethod = 'standard';
+            showGallery();
+        }
+    });
+    
+    // Crawler button click handler
+    crawlerButton.addEventListener('click', () => {
+        if (!isCrawlerActive) {
+            currentMethod = 'crawler';
+            startCrawler();
+        }
+        crawlerControls.style.display = 'flex';
+    });
+    
+    // Add keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && galleryContainer.style.display !== 'none') {
+            galleryContainer.style.display = 'none';
+        }
+    });
+}
+
+// Show gallery and process current page
+function showGallery() {
+    galleryContainer.style.display = 'flex';
+    if (!isProcessing) {
+        processCurrentPage();
+    }
+}
+
+// Process current page images
+function processCurrentPage() {
+    isProcessing = true;
+    processedPageUrls.add(window.location.href);
+    
+    // Find all images on the page
+    const images = document.querySelectorAll('img');
+    const currentPageUrl = window.location.href;
+    
+    images.forEach(async img => {
+        const originalUrl = img.src;
+        if (!processedImageUrls.has(originalUrl)) {
+            processedImageUrls.add(originalUrl);
+            
+            // Create placeholder while resolving full size
+            const placeholderId = `img_${Math.random().toString(36).substr(2, 9)}`;
+            createImagePlaceholder(placeholderId);
+            
+            // Try to get full size version
+            const result = await attemptToResolveFullSizeImage(originalUrl, currentPageUrl);
+            updateOrAddImageInGallery(result.originalUrl, result.fullSizeUrl, placeholderId);
+        }
+    });
+    
+    isProcessing = false;
+    updateCounter();
+}
+
+// Initialize everything
 function init() {
     createUI();
     createFailureLogButton();
     setupEventListeners();
     
-    // Load existing state
-    const hasStoredImages = loadCrawlerState();
-    
-    // Update UI based on loaded state
-    if (hasStoredImages) {
-        foundImages.forEach(url => {
-            const fullSizeUrl = imageGroups.get(getImageBaseName(url)).url;
-            updateOrAddImageInGallery(url, fullSizeUrl);
-        });
+    // Load existing failure log
+    const logKey = `${getStorageKeyPrefix()}${currentMethod}_resolutionFailures`;
+    const savedFailures = loadFromStorage(logKey);
+    if (savedFailures) {
+        imageResolutionFailures = savedFailures;
+        if (imageResolutionFailures.length > 0 && window.failureLogButton) {
+            window.failureLogButton.style.display = 'inline-block';
+        }
     }
 }
 
 // Start the script
 init();
+})();
