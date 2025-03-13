@@ -1180,3 +1180,168 @@
                 document.body.removeChild(popup);
             }
         });
+// Function to set the current method and update storage keys
+function setCurrentMethod(method) {
+    currentMethod = method;
+    STORAGE_KEYS = getStorageKeys(method);
+}
+
+// Function to save data to GM storage
+function saveToStorage(key, data) {
+    try {
+        GM_setValue(key, JSON.stringify(data));
+    } catch (error) {
+        console.error(`Error saving data to storage (${key}):`, error);
+        
+        // If the data is too large, try to save it in chunks
+        if (error.toString().includes('too large')) {
+            const chunkSize = 1000000; // 1MB chunks
+            if (Array.isArray(data)) {
+                const chunks = Math.ceil(data.length / chunkSize);
+                
+                // Clear any existing chunks
+                for (let i = 0; i < chunks; i++) {
+                    GM_deleteValue(`${key}_chunk_${i}`);
+                }
+                
+                // Save data in chunks
+                for (let i = 0; i < chunks; i++) {
+                    const chunk = data.slice(i * chunkSize, (i + 1) * chunkSize);
+                    GM_setValue(`${key}_chunk_${i}`, JSON.stringify(chunk));
+                }
+            }
+        }
+    }
+}
+
+// Function to load data from GM storage
+function loadFromStorage(key, defaultValue) {
+    try {
+        const data = GM_getValue(key);
+        if (data) {
+            return JSON.parse(data);
+        }
+        
+        // Check for chunked data
+        const chunkedData = [];
+        let chunkIndex = 0;
+        while (true) {
+            const chunk = GM_getValue(`${key}_chunk_${chunkIndex}`);
+            if (!chunk) break;
+            chunkedData.push(...JSON.parse(chunk));
+            chunkIndex++;
+        }
+        
+        if (chunkedData.length > 0) {
+            return chunkedData;
+        }
+        
+        return defaultValue;
+    } catch (error) {
+        console.error(`Error loading data from storage (${key}):`, error);
+        return defaultValue;
+    }
+}
+
+// Function to save crawler state to storage
+function saveCrawlerState() {
+    // Convert Set objects to arrays for storage
+    const processedUrlsArray = Array.from(processedPageUrls);
+    const processedImageUrlsArray = Array.from(processedImageUrls);
+    const domainsCrawledArray = Array.from(crawlerStats.domainsCrawled);
+    
+    // Update crawlerStats object
+    crawlerStats.pendingLinksCount = pendingLinks.length;
+    crawlerStats.lastActive = Date.now();
+    
+    // Save all data
+    saveToStorage(STORAGE_KEYS.PENDING_LINKS, pendingLinks);
+    saveToStorage(STORAGE_KEYS.PROCESSED_URLS, processedUrlsArray);
+    saveToStorage(STORAGE_KEYS.FOUND_IMAGES, foundImages);
+    saveToStorage(STORAGE_KEYS.CRAWL_IN_PROGRESS, {
+        active: isCrawlerActive,
+        paused: isCrawlerPaused
+    });
+    saveToStorage(STORAGE_KEYS.CRAWL_STATS, {
+        ...crawlerStats,
+        domainsCrawled: domainsCrawledArray
+    });
+    
+    // Store image metadata for each image (optional)
+    const imageMetadata = {};
+    imageGroups.forEach((value, key) => {
+        imageMetadata[key] = value;
+    });
+    saveToStorage(`${STORAGE_PREFIX}imageMetadata`, imageMetadata);
+}
+
+// Function to load crawler state from storage
+function loadCrawlerState() {
+    // Load stored data
+    const storedPendingLinks = loadFromStorage(STORAGE_KEYS.PENDING_LINKS, []);
+    const storedProcessedUrls = loadFromStorage(STORAGE_KEYS.PROCESSED_URLS, []);
+    const storedFoundImages = loadFromStorage(STORAGE_KEYS.FOUND_IMAGES, []);
+    const storedCrawlStatus = loadFromStorage(STORAGE_KEYS.CRAWL_IN_PROGRESS, { active: false, paused: false });
+    const storedCrawlStats = loadFromStorage(STORAGE_KEYS.CRAWL_STATS, {
+        pagesScanned: 0,
+        imagesFound: 0,
+        domainsCrawled: [],
+        startTime: null,
+        lastActive: null,
+        pendingLinksCount: 0
+    });
+    
+    // Restore state
+    pendingLinks = storedPendingLinks;
+    processedPageUrls = new Set(storedProcessedUrls);
+    processedImageUrls = new Set();  // Will be rebuilt as we load images
+    foundImages = storedFoundImages;
+    
+    // Restore crawler status
+    isCrawlerActive = storedCrawlStatus.active;
+    isCrawlerPaused = storedCrawlStatus.paused;
+    
+    // Restore stats
+    crawlerStats = {
+        ...storedCrawlStats,
+        domainsCrawled: new Set(storedCrawlStats.domainsCrawled || [])
+    };
+    
+    // Restore start time if it was saved
+    if (storedCrawlStats.startTime) {
+        crawlerStartTime = storedCrawlStats.startTime;
+    }
+    
+    // Restore image metadata
+    const imageMetadata = loadFromStorage(`${STORAGE_PREFIX}imageMetadata`, {});
+    imageGroups = new Map(Object.entries(imageMetadata));
+    
+    // Update UI based on loaded state
+    if (isCrawlerActive) {
+        crawlerProgress.style.display = 'block';
+        updateCrawlerProgress();
+    }
+    
+    return storedFoundImages.length > 0;
+}
+
+// Initialize the script and load state if available
+function init() {
+    createUI();
+    createFailureLogButton();
+    setupEventListeners();
+    
+    // Load existing state
+    const hasStoredImages = loadCrawlerState();
+    
+    // Update UI based on loaded state
+    if (hasStoredImages) {
+        foundImages.forEach(url => {
+            const fullSizeUrl = imageGroups.get(getImageBaseName(url)).url;
+            updateOrAddImageInGallery(url, fullSizeUrl);
+        });
+    }
+}
+
+// Start the script
+init();
