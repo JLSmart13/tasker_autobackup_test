@@ -1,0 +1,1701 @@
+// ==UserScript==
+// @name         Enhanced Image Collector with Site Crawler
+// @namespace    http://tampermonkey.net/
+// @version      0.5
+// @description  Advanced image collector with site-wide crawler and persistent storage for each URL and method
+// @author       JLSmart13
+// @match        *://*/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_download
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_listValues
+// @run-at       document-idle
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    
+    // ===== STORAGE MANAGEMENT =====
+    // Configuration values for storage
+    const STORAGE_PREFIX = 'enhancedImageCollector_';
+    
+    // Get a unique storage key based on URL and method
+    function getStorageKeyPrefix() {
+        // Get the hostname and pathname for the current URL
+        const hostname = window.location.hostname;
+        let pathname = window.location.pathname;
+        
+        // Truncate very long pathnames to prevent exceeding storage limits
+        if (pathname.length > 50) {
+            pathname = pathname.substring(0, 50);
+        }
+        
+        // Remove query parameters and hash from URL
+        pathname = pathname.split('?')[0].split('#')[0];
+        
+        // Create a URL identifier
+        const urlIdentifier = `${hostname}${pathname}`;
+        
+        // Return the base key prefix for the current URL
+        return `${STORAGE_PREFIX}${urlIdentifier}_`;
+    }
+    
+    // Generate storage keys for different methods
+    function getStorageKeys(method) {
+        const prefix = `${getStorageKeyPrefix()}${method}_`;
+        
+        return {
+            PENDING_LINKS: `${prefix}pendingLinks`,
+            PROCESSED_URLS: `${prefix}processedUrls`,
+            FOUND_IMAGES: `${prefix}foundImages`,
+            DOMAIN_DATA: `${prefix}domainData`,
+            CRAWL_IN_PROGRESS: `${prefix}crawlInProgress`,
+            CRAWL_STATS: `${prefix}crawlStats`,
+            IMAGE_METADATA: `${prefix}imageMetadata`
+        };
+    }
+    
+    // Current method (standard or crawler)
+    let currentMethod = null;
+    let STORAGE_KEYS = {};
+    
+    // Function to set the current method and update storage keys
+    function setCurrentMethod(method) {
+        currentMethod = method;
+        STORAGE_KEYS = getStorageKeys(method);
+    }
+    
+    // Function to save data to GM storage
+    function saveToStorage(key, data) {
+        try {
+            GM_setValue(key, JSON.stringify(data));
+        } catch (error) {
+            console.error(`Error saving data to storage (${key}):`, error);
+            
+            // If the data is too large, try to save it in chunks
+            if (error.toString().includes('too large')) {
+                const chunkSize = 1000000; // 1MB chunks
+                if (Array.isArray(data)) {
+                    const chunks = Math.ceil(data.length / chunkSize);
+                    
+                    // Clear any existing chunks
+                    for (let i = 0; i    // ===== UTILITY FUNCTIONS =====
+    // Function to check if URL is an image
+    function isImageUrl(url) {
+        return /\.(jpeg|jpg|gif|png|webp|bmp|avif|svg)(\?.*)?$/i.test(url);
+    }
+    
+    // Function to get absolute URL from relative URL
+    function getAbsoluteUrl(baseUrl, relativeUrl) {
+        try {
+            return new URL(relativeUrl, baseUrl).href;
+        } catch (e) {
+            return null;
+        }
+    }
+    
+    // Function to fetch content from a URL
+    function fetchUrl(url) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: url,
+                onload: function(response) {
+                    resolve(response);
+                },
+                onerror: function(error) {
+                    reject(error);
+                },
+                timeout: 10000
+            });
+        });
+    }
+    
+    // Function to extract domain from URL
+    function getDomain(url) {
+        try {
+            const urlObj = new URL(url);
+            return urlObj.hostname;
+        } catch (e) {
+            return null;
+        }
+    }
+    
+    // Function to check if a URL is from the same domain
+    function isSameDomain(url1, url2) {
+        return getDomain(url1) === getDomain(url2);
+    }
+    
+    // Function to detect junk images (ads, UI elements, logos, icons)
+    function isJunkImage(imageUrl, width, height) {
+        // 1. Size-based detection: very small images are often icons, buttons, or decorations
+        const isTooSmall = (width && height) && (width < 100 || height < 100);
+        
+        // 2. URL pattern detection for common advertising and tracking images
+        const adPatterns = [
+            /\/ads?\//i,              // /ad/ or /ads/ in path
+            /\/banners?\//i,          // /banner/ or /banners/ in path
+            /\/sponsors?\//i,         // /sponsor/ or /sponsors/ in path
+            /adserver/i,              // adserver in domain
+            /analytics/i,             // analytics in URL
+            /tracking/i,              // tracking in URL
+            /pixel\.(gif|png)/i,      // tracking pixels
+            /transparent\.(gif|png)/i,// transparent placeholders
+            /banner/i,                // banner in filename
+            /advertisement/i,         // advertisement in URL
+            /doubleclick/i,           // Google ads
+            /pagead/i,                // Google page ads
+            /googleads/i,             // Google ads
+            /adsystem/i,              // Ad systems
+            /adimg/i,                 // Ad images
+            /advert/i,                // Advertising
+            /affiliate/i              // Affiliate marketing
+        ];
+        
+        // 3. Common UI element patterns
+        const uiPatterns = [
+            /\/icons?\//i,            // /icon/ or /icons/ in path
+            /\/buttons?\//i,          // /button/ or /buttons/ in path
+            /\/logos?\//i,            // /logo/ or /logos/ in path
+            /\/header/i,              // Header images
+            /\/footer/i,              // Footer images
+            /\/bg\./i,                // Background images
+            /background/i,            // Background images
+            /icon[_-]/i,              // icon_ or icon- in filename
+            /logo[_-]/i,              // logo_ or logo- in filename
+            /button[_-]/i,            // button_ or button- in filename
+            /separator/i,             // Separators
+            /divider/i,               // Dividers
+            /bullet/i,                // Bullet points
+            /sprite/i,                // CSS sprites
+            /loading/i,               // Loading indicators
+            /spinner/i,               // Spinners
+            /arrow/i,                 // Navigation arrows
+            /badge/i                  // Badges and icons
+        ];
+        
+        // 4. Common site asset locations
+        const assetPatterns = [
+            /\/assets\//i,            // Common asset directory
+            /\/static\//i,            // Static assets
+            /\/images\/ui\//i,        // UI images
+            /\/themes?\//i,           // Theme assets
+            /\/wp-content\/themes\//i,// WordPress themes
+            /\/templates?\//i,        // Template assets
+            /\/css\//i,               // CSS directory often has UI images
+            /\/styles?\//i            // Styles directory
+        ];
+        
+        // Check if the URL matches any of the patterns
+        const isAdUrl = adPatterns.some(pattern => pattern.test(imageUrl));
+        const isUiUrl = uiPatterns.some(pattern => pattern.test(imageUrl));
+        
+        // For asset directories, only filter if it also seems small or has UI/icon in the name
+        const isAssetUrl = assetPatterns.some(pattern => pattern.test(imageUrl)) && 
+                          (isTooSmall || /icon|ui|button|logo/i.test(imageUrl));
+        
+        // 5. Detect by aspect ratio - extremely wide or tall images are often banners or decorations
+        let extremeAspectRatio = false;
+        if (width && height) {
+            const ratio = width / height;
+            extremeAspectRatio = ratio > 5 || ratio < 0.2; // Very wide or very tall
+        }
+        
+        // 6. Filename patterns for common junk images
+        const junkFilenames = [
+            /spacer\.(gif|png)/i,     // Spacer images
+            /blank\.(gif|png)/i,      // Blank images
+            /empty\.(gif|png)/i,      // Empty images
+            /dot\.(gif|png)/i,        // Dot images
+            /pixel\.(gif|png)/i,      // Pixel images
+            /transparent\.(gif|png)/i // Transparent images
+        ];
+        
+        const isJunkFilename = junkFilenames.some(pattern => pattern.test(imageUrl));
+        
+        // Combine all checks
+        return isTooSmall || isAdUrl || isUiUrl || isAssetUrl || extremeAspectRatio || isJunkFilename;
+    }
+    
+    // Function to update crawler progress indicators
+    function updateCrawlerProgress() {
+        if (!isCrawlerActive) return;
+        
+        // Update progress bar
+        const totalLinks = crawlerStats.pendingLinksCount + crawlerStats.pagesScanned;
+        if (totalLinks > 0) {
+            const progress = Math.min((crawlerStats.pagesScanned / totalLinks) * 100, 100);
+            progressBar.style.width = `${progress}%`;
+        }
+        
+        // Update crawler button appearance
+        if (isCrawlerPaused) {
+            crawlerButton.style.background = '#f39c12'; // Orange for paused
+            crawlerButton.textContent = '⏸️';
+        } else {
+            crawlerButton.style.background = '#9b59b6'; // Purple for active
+            crawlerButton.textContent = '🕸️';
+        }
+        
+        // Show progress indicator
+        crawlerProgress.style.display = 'block';
+        
+        // Update the status counter with crawler stats
+        const elapsedTime = crawlerStartTime ? Math.floor((Date.now() - crawlerStartTime) / 1000) : 0;
+        const minutes = Math.floor(elapsedTime / 60);
+        const seconds = elapsedTime % 60;
+        
+        statusCounter.textContent = `Crawler ${isCrawlerPaused ? 'PAUSED' : 'ACTIVE'}: ${crawlerStats.imagesFound} images from ${crawlerStats.pagesScanned} pages (${pendingLinks.length} pending) - Time: ${minutes}m ${seconds}s`;
+        
+        // Update crawler data in storage
+        saveCrawlerState();
+    }
+    
+    // Save crawler state to storage
+    function saveCrawlerState() {
+        // Convert Set objects to arrays for storage
+        const processedUrlsArray = Array.from(processedPageUrls);
+        const processedImageUrlsArray = Array.from(processedImageUrls);
+        const domainsCrawledArray = Array.from(crawlerStats.domainsCrawled);
+        
+        // Update crawlerStats object
+        crawlerStats.pendingLinksCount = pendingLinks.length;
+        crawlerStats.lastActive = Date.now();
+        
+        // Save all data
+        saveToStorage(STORAGE_KEYS.PENDING_LINKS, pendingLinks);
+        saveToStorage(STORAGE_KEYS.PROCESSED_URLS, processedUrlsArray);
+        saveToStorage(STORAGE_KEYS.FOUND_IMAGES, foundImages);
+        saveToStorage(STORAGE_KEYS.CRAWL_IN_PROGRESS, {
+            active: isCrawlerActive,
+            paused: isCrawlerPaused
+        });
+        saveToStorage(STORAGE_KEYS.CRAWL_STATS, {
+            ...crawlerStats,
+            domainsCrawled: domainsCrawledArray
+        });
+        
+        // Store image metadata for each image (optional)
+        const imageMetadata = {};
+        imageGroups.forEach((value, key) => {
+            imageMetadata[key] = value;
+        });
+        saveToStorage(`${STORAGE_PREFIX}imageMetadata`, imageMetadata);
+    }
+    
+    // Load crawler state from storage
+    function loadCrawlerState() {
+        // Load stored data
+        const storedPendingLinks = loadFromStorage(STORAGE_KEYS.PENDING_LINKS, []);
+        const storedProcessedUrls = loadFromStorage(STORAGE_KEYS.PROCESSED_URLS, []);
+        const storedFoundImages = loadFromStorage(STORAGE_KEYS.FOUND_IMAGES, []);
+        const storedCrawlStatus = loadFromStorage(STORAGE_KEYS.CRAWL_IN_PROGRESS, { active: false, paused: false });
+        const storedCrawlStats = loadFromStorage(STORAGE_KEYS.CRAWL_STATS, {
+            pagesScanned: 0,
+            imagesFound: 0,
+            domainsCrawled: [],
+            startTime: null,
+            lastActive: null,
+            pendingLinksCount: 0
+        });
+        
+        // Restore state
+        pendingLinks = storedPendingLinks;
+        processedPageUrls = new Set(storedProcessedUrls);
+        processedImageUrls = new Set();  // Will be rebuilt as we load images
+        foundImages = storedFoundImages;
+        
+        // Restore crawler status
+        isCrawlerActive = storedCrawlStatus.active;
+        isCrawlerPaused = storedCrawlStatus.paused;
+        
+        // Restore stats
+        crawlerStats = {
+            ...storedCrawlStats,
+            domainsCrawled: new Set(storedCrawlStats.domainsCrawled || [])
+        };
+        
+        // Restore start time if it was saved
+        if (storedCrawlStats.startTime) {
+            crawlerStartTime = storedCrawlStats.startTime;
+        }
+        
+        // Restore image metadata
+        const imageMetadata = loadFromStorage(`${STORAGE_PREFIX}imageMetadata`, {});
+        imageGroups = new Map(Object.entries(imageMetadata));
+        
+        // Update UI based on loaded state
+        if (isCrawlerActive) {
+            crawlerProgress.style.display = 'block';
+            updateCrawlerProgress();
+        }
+        
+        return storedFoundImages.length > 0;
+    }    // ===== IMAGE PROCESSING FUNCTIONS =====
+    // Enhanced function to find the full-size image URL with site-agnostic detection
+    async function getFullSizeImageUrl(imageUrl, baseUrl, depth = 0) {
+        // Prevent excessive recursion
+        if (depth > 3) {
+            return imageUrl;
+        }
+        
+        // Common patterns for thumbnail identifiers in URLs
+        const thumbnailPatterns = [
+            /\/t_([^\/]+)$/i,        // /t_[hash]
+            /\/thumbs?\/([^\/]+)$/i,  // /thumb/[filename] or /thumbs/[filename]
+            /\/thumbnails?\/([^\/]+)$/i, // /thumbnail/[filename]
+            /[-_]thumb[-_]/i,        // filename-thumb-etc or filename_thumb_etc
+            /[-_]small[-_]/i,        // filename-small-etc
+            /[-_]preview[-_]/i,      // filename-preview-etc
+            /[-_](?:\d+x\d+)[-_]/i,  // filename-123x456-etc (dimensions in filename)
+            /\/(?:\d+x\d+)\/([^\/]+)$/i // /123x456/filename (dimensions in path)
+        ];
+        
+        // Check if URL already appears to be a full-size image
+        if (isImageUrl(imageUrl)) {
+            // Try to detect if this is a thumbnail despite having an image extension
+            let isThumbnail = false;
+            for (const pattern of thumbnailPatterns) {
+                if (pattern.test(imageUrl)) {
+                    isThumbnail = true;
+                    break;
+                }
+            }
+            
+            if (!isThumbnail || depth > 0) {
+                return imageUrl; // Already a full image or we've already tried to find a larger one
+            }
+        }
+        
+        // Try to generate possible full-size URLs based on thumbnail URL patterns
+        const potentialFullSizeUrls = [];
+        
+        // 1. Try removing thumbnail identifiers
+        for (const pattern of thumbnailPatterns) {
+            if (pattern.test(imageUrl)) {
+                // Try different transformations based on the pattern
+                if (/\/t_([^\/]+)$/i.test(imageUrl)) {
+                    // t_ prefix pattern (like in your example)
+                    const fullSizeUrl = imageUrl.replace(/\/t_([^\/]+)$/i, '/$1');
+                    
+                    // Try with common image extensions if the URL doesn't have one
+                    if (!isImageUrl(fullSizeUrl)) {
+                        ['.jpg', '.jpeg', '.png', '.webp'].forEach(ext => {
+                            potentialFullSizeUrls.push(fullSizeUrl + ext);
+                        });
+                    } else {
+                        potentialFullSizeUrls.push(fullSizeUrl);
+                    }
+                } else if (/\/thumbs?\/([^\/]+)$/i.test(imageUrl)) {
+                    // /thumb/ or /thumbs/ pattern
+                    const filename = imageUrl.match(/\/thumbs?\/([^\/]+)$/i)[1];
+                    potentialFullSizeUrls.push(imageUrl.replace(/\/thumbs?\/([^\/]+)$/i, '/images/$1'));
+                    potentialFullSizeUrls.push(imageUrl.replace(/\/thumbs?\/([^\/]+)$/i, '/full/$1'));
+                    potentialFullSizeUrls.push(imageUrl.replace(/\/thumbs?\/([^\/]+)$/i, '/$1'));
+                } else if (/[-_]thumb[-_]/i.test(imageUrl)) {
+                    // -thumb- or _thumb_ pattern
+                    potentialFullSizeUrls.push(imageUrl.replace(/[-_]thumb[-_]/i, '-'));
+                    potentialFullSizeUrls.push(imageUrl.replace(/[-_]thumb[-_]/i, '_'));
+                } else if (/[-_](?:\d+x\d+)[-_]/i.test(imageUrl)) {
+                    // Remove dimensions like -300x200-
+                    potentialFullSizeUrls.push(imageUrl.replace(/[-_](?:\d+x\d+)[-_]/i, '-'));
+                    potentialFullSizeUrls.push(imageUrl.replace(/[-_](?:\d+x\d+)[-_]/i, '_'));
+                }
+            }
+        }
+        
+        // 2. Try common size modifiers
+        // For URLs with /s/ or /m/ as size indicators (common in CDNs and image hosts)
+        if (/\/[sm]\//.test(imageUrl)) {
+            potentialFullSizeUrls.push(imageUrl.replace(/\/[sm]\//, '/l/'));
+            potentialFullSizeUrls.push(imageUrl.replace(/\/[sm]\//, '/xl/'));
+            potentialFullSizeUrls.push(imageUrl.replace(/\/[sm]\//, '/original/'));
+        }
+        
+        // 3. Try to follow the link and look for pointers to full images
+        try {
+            const response = await fetchUrl(imageUrl);
+            
+            // If the URL redirects to an image, use that
+            const contentType = response.responseHeaders.match(/content-type:\s*image\/[^\s;]*/i);
+            if (contentType) {
+                return imageUrl; // It's already an image
+            }
+            
+            // Parse HTML to find links to full images
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(response.responseText, 'text/html');
+            
+            // Look for common patterns in HTML that point to full images
+            
+            // A. Find links that directly point to images
+            const imageLinks = Array.from(doc.querySelectorAll('a[href$=".jpg"], a[href$=".jpeg"], a[href$=".png"], a[href$=".webp"]'));
+            for (const link of imageLinks) {
+                const href = link.getAttribute('href');
+                if (href) {
+                    const fullUrl = getAbsoluteUrl(imageUrl, href);
+                    if (fullUrl) potentialFullSizeUrls.push(fullUrl);
+                }
+            }
+            
+            // B. Find links with text suggesting they lead to full images
+            const fullSizeTextLinks = Array.from(doc.querySelectorAll('a'));
+            for (const link of fullSizeTextLinks) {
+                const text = link.textContent.toLowerCase();
+                const href = link.getAttribute('href');
+                if (href && (text.includes('full') || text.includes('original') || 
+                            text.includes('large') || text.includes('high') || 
+                            text.includes('view image') || text.includes('zoom'))) {
+                    const fullUrl = getAbsoluteUrl(imageUrl, href);
+                    if (fullUrl) potentialFullSizeUrls.push(fullUrl);
+                }
+            }
+            
+            // C. Find image tags with data attributes suggesting full size versions
+            const images = Array.from(doc.querySelectorAll('img'));
+            for (const img of images) {
+                // Look for data attributes that might contain full-size URLs
+                for (const attr of img.attributes) {
+                    if (/^data-(?:full|original|large|source|high|zoom)/i.test(attr.name)) {
+                        const fullUrl = getAbsoluteUrl(imageUrl, attr.value);
+                        if (fullUrl) potentialFullSizeUrls.push(fullUrl);
+                    }
+                }
+            }
+            
+            // D. Check for OpenGraph images (often full size)
+            const metaTags = Array.from(doc.querySelectorAll('meta[property^="og:image"]'));
+            for (const meta of metaTags) {
+                const content = meta.getAttribute('content');
+                if (content) {
+                    const fullUrl = getAbsoluteUrl(imageUrl, content);
+                    if (fullUrl) potentialFullSizeUrls.push(fullUrl);
+                }
+            }
+        } catch (error) {
+            console.error(`Error fetching ${imageUrl}: ${error.message}`);
+        }
+        
+        // Try each potential full-size URL
+        for (const url of potentialFullSizeUrls) {
+            try {
+                // Check if this is an actual full-size image
+                const response = await fetchUrl(url);
+                const contentType = response.responseHeaders.match(/content-type:\s*image\/[^\s;]*/i);
+                
+                if (contentType) {
+                    // Check if the image is actually larger
+                    // We might need to rely on header info or URL pattern assessment
+                    const filesizeHeader = response.responseHeaders.match(/content-length:\s*(\d+)/i);
+                    if (filesizeHeader) {
+                        const size = parseInt(filesizeHeader[1]);
+                        // If the image is significantly larger, it's likely the full version
+                        if (size > 50000) { // Arbitrary threshold, adjust as needed
+                            return url;
+                        }
+                    } else {
+                        // If we can't determine size, assume it's the full version
+                        return url;
+                    }
+                } else if (!isImageUrl(url)) {
+                    // If not an image, it might be another HTML page we should check
+                    const deeperImage = await getFullSizeImageUrl(url, imageUrl, depth + 1);
+                    if (deeperImage !== url) {
+                        return deeperImage;
+                    }
+                }
+            } catch (error) {
+                console.error(`Error checking potential full-size URL ${url}: ${error.message}`);
+            }
+        }
+        
+        // If we couldn't find a better version, return the original
+        return imageUrl;
+    }
+
+    // Enhanced function to identify similar images across different naming patterns
+    function getImageBaseName(url) {
+        // Extract the filename from the URL
+        let filename = url.split('/').pop().split('?')[0];
+        
+        // Remove common file extensions
+        filename = filename.replace(/\.(jpg|jpeg|png|gif|webp|bmp)$/i, '');
+        
+        // Remove thumbnail identifiers
+        filename = filename
+            // Remove dimensions in filenames (e.g., image-800x600 → image)
+            .replace(/-\d+x\d+(?=($|\.))/, '')
+            .replace(/_\d+x\d+(?=($|\.))/, '')
+            // Remove common size indicators
+            .replace(/[-_](small|medium|large|thumb|tiny|preview)(?=($|\.))/, '')
+            .replace(/[-_](sm|md|lg|xl|xxl|orig)(?=($|\.))/, '')
+            // Remove numbered variants
+            .replace(/[-_]\d+(?=($|\.))/, '')
+            // Remove hash-like identifiers (often added by CDNs)
+            .replace(/[-_][a-f0-9]{8,}(?=($|\.))/, '');
+        
+        // Extract core part of hashed filenames
+        // If the filename is just a hash (common in media servers)
+        if (/^[a-f0-9]{20,}$/i.test(filename)) {
+            // Create a fingerprint from part of the hash
+            return filename.substring(0, 16);
+        }
+        
+        return filename;
+    }
+
+    // Function to estimate if an image URL is likely to be a thumbnail
+    function isThumbnailUrl(url) {
+        const thumbnailIndicators = [
+            /\/t_/i,               // /t_ prefix
+            /\/thumbs?\//i,        // /thumb/ or /thumbs/ in path
+            /\/thumbnails?\//i,    // /thumbnail/ in path
+            /\/s\//i,              // /s/ size indicator (small)
+            /\/m\//i,              // /m/ size indicator (medium)
+            /-thumb/i,             // -thumb in filename
+            /_thumb/i,             // _thumb in filename
+            /-small/i,             // -small in filename
+            /-preview/i,           // -preview in filename
+            /-\d{2,3}x\d{2,3}/i,   // small dimensions like -300x200
+            /\bw=\d{2,3}/i         // width parameter with small value
+        ];
+        
+        for (const pattern of thumbnailIndicators) {
+            if (pattern.test(url)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    // Function to compare two URLs and determine which is likely the larger image
+    function compareProbableImageSizes(urlA, urlB) {
+        // Check for common thumbnail patterns in each URL
+        const aIsThumbnail = isThumbnailUrl(urlA);
+        const bIsThumbnail = isThumbnailUrl(urlB);
+        
+        // If one is a thumbnail and the other isn't
+        if (aIsThumbnail && !bIsThumbnail) return -1; // A is smaller
+        if (!aIsThumbnail && bIsThumbnail) return 1;  // A is larger
+        
+        // Look for dimensions in the URLs
+        const aDims = urlA.match(/[-_\/](\d{2,4})x(\d{2,4})[-_\/\.]/i);
+        const bDims = urlB.match(/[-_\/](\d{2,4})x(\d{2,4})[-_\/\.]/i);
+        
+        if (aDims && bDims) {
+            const aSize = parseInt(aDims[1]) * parseInt(aDims[2]);
+            const bSize = parseInt(bDims[1]) * parseInt(bDims[2]);
+            return aSize - bSize; // Positive if A is larger
+        }
+        
+        // Look for size indicators in filenames
+        const sizePriority = {
+            'full': 100,
+            'original': 90,
+            'high': 80,
+            'large': 70,
+            'xl': 60,
+            'lg': 50,
+            'medium': 40,
+            'md': 30,
+            'small': 20,
+            'sm': 10,
+            'thumb': 0,
+            'tiny': -10
+        };
+        
+        for (const [term, priority] of Object.entries(sizePriority)) {
+            const aHas = new RegExp(`[-_]${term}[-_\\.]`, 'i').test(urlA);
+            const bHas = new RegExp(`[-_]${term}[-_\\.]`, 'i').test(urlB);
+            
+            if (aHas && !bHas) return priority; // Positive for higher priority
+            if (!aHas && bHas) return -priority; // Negative for lower priority
+        }
+        
+        // If no clear indicators, prefer URLs with fewer transformative parts
+        const aTransforms = (urlA.match(/[_-](resize|scale|crop|thumb)/gi) || []).length;
+        const bTransforms = (urlB.match(/[_-](resize|scale|crop|thumb)/gi) || []).length;
+        
+        if (aTransforms !== bTransforms) {
+            return bTransforms - aTransforms; // Fewer transformations likely means original
+        }
+        
+        // Check URL length - sometimes longer URLs have more transformations
+        return urlB.length - urlA.length;
+    }    // ===== UI AND GALLERY FUNCTIONS =====
+    
+    // Function to add a temporary placeholder while the image is being processed
+    function addTempImagePlaceholder(imageUrl, tempId) {
+        const imageContainer = document.createElement('div');
+        imageContainer.id = tempId;
+        imageContainer.setAttribute('data-temp-url', imageUrl);
+        imageContainer.style.cssText = `
+            background: #333;
+            border-radius: 5px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        `;
+        
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.style.cssText = `
+            width: 40px;
+            height: 40px;
+            border: 4px solid #444;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        `;
+        
+        const styleAnimation = document.createElement('style');
+        styleAnimation.textContent = `
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(styleAnimation);
+        
+        const loadingText = document.createElement('div');
+        loadingText.textContent = 'Finding best version...';
+        loadingText.style.cssText = `
+            color: #ccc;
+            margin-top: 10px;
+            font-size: 12px;
+        `;
+        
+        imageContainer.appendChild(loadingIndicator);
+        imageContainer.appendChild(loadingText);
+        imageGrid.appendChild(imageContainer);
+    }
+
+    // Function to replace a placeholder with an actual image
+    function createImageInContainer(imageUrl, container) {
+        // Clear the container
+        container.innerHTML = '';
+        container.style.cssText = `
+            background: #444;
+            border-radius: 5px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        `;
+        container.removeAttribute('data-temp-url');
+        container.setAttribute('data-image-url', imageUrl);
+        
+        // Create image element
+        const img = document.createElement('img');
+        img.style.cssText = `
+            width: 100%;
+            height: 200px;
+            object-fit: contain;
+            background: #222;
+        `;
+        img.src = imageUrl;
+        img.loading = 'lazy';
+        
+        // Show full image on click
+        img.addEventListener('click', () => {
+            showFullSizeViewer(imageUrl);
+        });
+        
+        // Image info display
+        const imageUrl_display = document.createElement('div');
+        imageUrl_display.style.cssText = `
+            padding: 5px;
+            font-size: 12px;
+            color: #ddd;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
+        `;
+        imageUrl_display.textContent = imageUrl.split('/').pop();
+        
+        // Domain info display
+        const domain = getDomain(imageUrl);
+        const domainBadge = document.createElement('div');
+        domainBadge.style.cssText = `
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0,0,0,0.5);
+            color: #fff;
+            font-size: 10px;
+            padding: 2px 5px;
+            border-radius: 3px;
+        `;
+        domainBadge.textContent = domain;
+        
+        // Download button
+        const downloadButton = document.createElement('button');
+        downloadButton.textContent = '⬇️';
+        downloadButton.style.cssText = `
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 5px;
+            cursor: pointer;
+            margin-top: auto;
+        `;
+        
+        downloadButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const filename = imageUrl.split('/').pop().split('?')[0] || 'image.jpg';
+            GM_download({
+                url: imageUrl,
+                name: filename
+            });
+        });
+        
+        container.appendChild(img);
+        container.appendChild(imageUrl_display);
+        container.appendChild(domainBadge);
+        container.appendChild(downloadButton);
+    }
+
+    // Function to update or add an image to the gallery
+    function updateOrAddImageInGallery(originalUrl, fullSizeUrl, tempId) {
+        // Check if this is a new image or we need to update one
+        const tempElement = document.getElementById(tempId);
+        
+        // Get base name to identify similar images
+        const baseName = getImageBaseName(fullSizeUrl);
+        
+        // Check if we already have this image in another form
+        if (imageGroups.has(baseName) && imageGroups.get(baseName).url !== fullSizeUrl) {
+            const existing = imageGroups.get(baseName);
+            
+            // Compare which URL is likely to be larger
+            const comparison = compareProbableImageSizes(fullSizeUrl, existing.url);
+            
+            // If new URL seems to be a larger version
+            if (comparison > 0) {
+                // Update with the better version
+                const index = foundImages.indexOf(existing.url);
+                if (index !== -1) {
+                    foundImages[index] = fullSizeUrl;
+                    updateImageInGallery(existing.url, fullSizeUrl);
+                    imageGroups.set(baseName, {url: fullSizeUrl});
+                }
+            }
+            
+            // Remove the temporary placeholder since we already have this image
+            if (tempElement) {
+                imageGrid.removeChild(tempElement);
+            }
+            
+            return;
+        }
+        
+        // This is a new unique image
+        if (tempElement) {
+            // Replace the placeholder with the actual image
+            createImageInContainer(fullSizeUrl, tempElement);
+        } else {
+            // Create a new image element
+            createImageInGallery(fullSizeUrl);
+        }
+        
+        // Add to tracking collections
+        foundImages.push(fullSizeUrl);
+        imageGroups.set(baseName, {url: fullSizeUrl});
+        
+        // Update counter
+        updateCounter();
+        
+        // Update crawler stats if crawler is active
+        if (isCrawlerActive) {
+            crawlerStats.imagesFound = foundImages.length;
+            updateCrawlerProgress();
+        }
+    }
+
+    // Function to create a new image in the gallery
+    function createImageInGallery(imageUrl) {
+        const imageContainer = document.createElement('div');
+        imageContainer.setAttribute('data-image-url', imageUrl);
+        imageContainer.style.cssText = `
+            background: #444;
+            border-radius: 5px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        `;
+        
+        const img = document.createElement('img');
+        img.style.cssText = `
+            width: 100%;
+            height: 200px;
+            object-fit: contain;
+            background: #222;
+        `;
+        img.src = imageUrl;
+        img.loading = 'lazy';
+        
+        // Show full image on click
+        img.addEventListener('click', () => {
+            showFullSizeViewer(imageUrl);
+        });
+        
+        const imageUrl_display = document.createElement('div');
+        imageUrl_display.style.cssText = `
+            padding: 5px;
+            font-size: 12px;
+            color: #ddd;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
+        `;
+        imageUrl_display.textContent = imageUrl.split('/').pop();
+        
+        // Domain info display
+        const domain = getDomain(imageUrl);
+        const domainBadge = document.createElement('div');
+        domainBadge.style.cssText = `
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0,0,0,0.5);
+            color: #fff;
+            font-size: 10px;
+            padding: 2px 5px;
+            border-radius: 3px;
+        `;
+        domainBadge.textContent = domain;
+        
+        const downloadButton = document.createElement('button');
+        downloadButton.textContent = '⬇️';
+        downloadButton.style.cssText = `
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 5px;
+            cursor: pointer;
+            margin-top: auto;
+        `;
+        
+        downloadButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const filename = imageUrl.split('/').pop().split('?')[0] || 'image.jpg';
+            GM_download({
+                url: imageUrl,
+                name: filename
+            });
+        });
+        
+        imageContainer.appendChild(img);
+        imageContainer.appendChild(imageUrl_display);
+        imageContainer.appendChild(domainBadge);
+        imageContainer.appendChild(downloadButton);
+        imageGrid.appendChild(imageContainer);
+    }
+
+    // Function to update an image in the gallery
+    function updateImageInGallery(oldUrl, newUrl) {
+        // Find the container with the old image
+        const containers = Array.from(imageGrid.children);
+        for (const container of containers) {
+            if (container.getAttribute('data-image-url') === oldUrl) {
+                // Update the container's data attribute
+                container.setAttribute('data-image-url', newUrl);
+                
+                // Update the image src
+                const img = container.querySelector('img');
+                if (img) img.src = newUrl;
+                
+                // Update the text display
+                const display = container.querySelector('div');
+                if (display) display.textContent = newUrl.split('/').pop();
+                
+                // Update the domain badge if needed
+                const domain = getDomain(newUrl);
+                const domainBadge = container.querySelector('div[style*="position: absolute"]');
+                if (domainBadge) domainBadge.textContent = domain;
+                
+                // Update the download button
+                const downloadButton = container.querySelector('button');
+                if (downloadButton) {
+                    downloadButton.onclick = (e) => {
+                        e.stopPropagation();
+                        const filename = newUrl.split('/').pop().split('?')[0] || 'image.jpg';
+                        GM_download({
+                            url: newUrl,
+                            name: filename
+                        });
+                    };
+                }
+                
+                break;
+            }
+        }
+    }
+
+    // Function to show a fullscreen view of the image
+    function showFullSizeViewer(imageUrl) {
+        const fullView = document.createElement('div');
+        fullView.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10002;
+        `;
+        
+        const fullImg = document.createElement('img');
+        fullImg.style.cssText = `
+            max-width: 95%;
+            max-height: 90%;
+            object-fit: contain;
+        `;
+        fullImg.src = imageUrl;
+        
+        const closeFullView = document.createElement('button');
+        closeFullView.textContent = '✖';
+        closeFullView.style.cssText = `
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            font-size: 16px;
+        `;
+        
+        closeFullView.addEventListener('click', () => {
+            document.body.removeChild(fullView);
+        });
+        
+        // Also close on click outside the image
+        fullView.addEventListener('click', (e) => {
+            if (e.target === fullView) {
+                document.body.removeChild(fullView);
+            }
+        });
+        
+        // Image URL display
+        const urlDisplay = document.createElement('div');
+        urlDisplay.textContent = imageUrl;
+        urlDisplay.style.cssText = `
+            position: absolute;
+            bottom: 60px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 3px;
+            max-width: 80%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+        `;
+        
+        // Add download button in full view
+        const downloadButton = document.createElement('button');
+        downloadButton.textContent = 'Download';
+        downloadButton.style.cssText = `
+            position: absolute;
+            bottom: 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 15px;
+            cursor: pointer;
+            font-size: 14px;
+        `;
+        
+        downloadButton.addEventListener('click', () => {
+            const filename = imageUrl.split('/').pop().split('?')[0] || 'image.jpg';
+            GM_download({
+                url: imageUrl,
+                name: filename
+            });
+        });
+        
+        fullView.appendChild(fullImg);
+        fullView.appendChild(closeFullView);
+        fullView.appendChild(urlDisplay);
+        fullView.appendChild(downloadButton);
+        document.body.appendChild(fullView);
+    }
+
+    // Function to update the counter display
+    function updateCounter() {
+        if (isCrawlerActive) {
+            // Crawler stats are shown by updateCrawlerProgress
+            updateCrawlerProgress();
+        } else {
+            statusCounter.textContent = `Found: ${foundImages.length} images from ${processedPageUrls.size} pages`;
+        }
+    }    // ===== CRAWLER AND IMAGE EXTRACTION FUNCTIONS =====
+    
+    // Function to extract image URLs from HTML
+    async function extractImagesFromHtml(htmlContent, baseUrl) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, 'text/html');
+        
+        // Find all standard images
+        const images = Array.from(doc.querySelectorAll('img'));
+        const imageUrls = [];
+        
+        // Process images in batches to avoid overwhelming the browser
+        const processBatch = async (startIndex, batchSize) => {
+            const endIndex = Math.min(startIndex + batchSize, images.length);
+            const batch = images.slice(startIndex, endIndex);
+            
+            for (const img of batch) {
+                let src = img.getAttribute('src') || 
+                          img.getAttribute('data-src') || 
+                          img.getAttribute('data-original');
+                
+                if (src) {
+                    const fullUrl = getAbsoluteUrl(baseUrl, src);
+                    
+                    if (fullUrl && !processedImageUrls.has(fullUrl)) {
+                        // Get image dimensions from attributes or CSS
+                        const width = parseInt(img.getAttribute('width') || img.style.width || '0');
+                        const height = parseInt(img.getAttribute('height') || img.style.height || '0');
+                        
+                        // Skip junk images
+                        if (isJunkImage(fullUrl, width, height)) {
+                            continue;
+                        }
+                        
+                        processedImageUrls.add(fullUrl);
+                        
+                        // Get the full size image URL and add to gallery immediately
+                        try {
+                            // Add a temporary placeholder while we find the full-size version
+                            const tempId = 'temp-' + Math.random().toString(36).substring(2, 15);
+                            addTempImagePlaceholder(fullUrl, tempId);
+                            
+                            // Find full-size version asynchronously
+                            const fullSizeUrl = await getFullSizeImageUrl(fullUrl, baseUrl);
+                            
+                            // Replace placeholder with actual image or add new if needed
+                            updateOrAddImageInGallery(fullUrl, fullSizeUrl, tempId);
+                            
+                            imageUrls.push(fullSizeUrl);
+                            
+                            // If crawler is active, periodically save state
+                            if (isCrawlerActive && imageUrls.length % 5 === 0) {
+                                saveCrawlerState();
+                            }
+                        } catch (error) {
+                            console.error(`Error processing image ${fullUrl}:`, error);
+                        }
+                    }
+                }
+            }
+            
+            // Process next batch if there are more images
+            if (endIndex < images.length) {
+                setTimeout(() => processBatch(endIndex, batchSize), 10);
+            }
+        };
+        
+        // Start processing in batches of 5
+        processBatch(0, 5);
+        
+        // Also find links to images in parallel
+        const links = Array.from(doc.querySelectorAll('a'));
+        
+        for (const link of links) {
+            let href = link.getAttribute('href');
+            
+            if (href) {
+                const fullUrl = getAbsoluteUrl(baseUrl, href);
+                
+                if (fullUrl && isImageUrl(fullUrl) && !processedImageUrls.has(fullUrl)) {
+                    // Skip junk images by URL pattern
+                    if (isJunkImage(fullUrl, 0, 0)) {
+                        continue;
+                    }
+                    
+                    processedImageUrls.add(fullUrl);
+                    
+                    try {
+                        // Add a temporary placeholder
+                        const tempId = 'temp-' + Math.random().toString(36).substring(2, 15);
+                        addTempImagePlaceholder(fullUrl, tempId);
+                        
+                        // Try to get the full-size image (the URL may already be full-size)
+                        const fullSizeUrl = await getFullSizeImageUrl(fullUrl, baseUrl);
+                        
+                        // Replace placeholder with actual image
+                        updateOrAddImageInGallery(fullUrl, fullSizeUrl, tempId);
+                        
+                        imageUrls.push(fullSizeUrl);
+                    } catch (error) {
+                        console.error(`Error processing image link ${fullUrl}:`, error);
+                    }
+                }
+            }
+        }
+        
+        return imageUrls;
+    }
+
+    // Function to extract non-image links from HTML for crawling
+    function extractNonImageLinksFromHtml(htmlContent, baseUrl) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, 'text/html');
+        
+        const links = Array.from(doc.querySelectorAll('a'));
+        const nonImageLinks = [];
+        
+        for (const link of links) {
+            let href = link.getAttribute('href');
+            
+            if (href) {
+                const fullUrl = getAbsoluteUrl(baseUrl, href);
+                
+                // Skip if null, already processed, or is an image
+                if (fullUrl && !processedPageUrls.has(fullUrl) && !isImageUrl(fullUrl)) {
+                    try {
+                        // Ensure it's a valid URL and compare domains
+                        const urlObj = new URL(fullUrl);
+                        const baseDomain = getDomain(baseUrl);
+                        
+                        // Only follow links from the same domain and avoid unwanted paths
+                        if (urlObj.hostname === baseDomain && 
+                            !fullUrl.includes('#') && 
+                            !fullUrl.includes('logout') &&
+                            !fullUrl.includes('login') &&
+                            !fullUrl.includes('register') &&
+                            !fullUrl.includes('signin') &&
+                            !fullUrl.includes('signout') &&
+                            !fullUrl.includes('auth') &&
+                            !fullUrl.includes('account')) {
+                            
+                            // Avoid common dynamic content that might cause infinite crawls
+                            if (!fullUrl.includes('comment') && 
+                                !fullUrl.includes('sort=') &&
+                                !fullUrl.includes('filter=') &&
+                                !fullUrl.includes('page=') && 
+                                !fullUrl.includes('?p=') &&
+                                !fullUrl.match(/\/\d+\/\d+\/\d+\//) // Avoid date-based archives
+                                ) {
+                                nonImageLinks.push(fullUrl);
+                            }
+                        }
+                    } catch (e) {
+                        // Invalid URL, skip
+                        console.error(`Invalid URL encountered: ${fullUrl}`);
+                    }
+                }
+            }
+        }
+        
+        return nonImageLinks;
+    }
+    
+    // Function to prioritize links for crawling
+    function prioritizeCrawlLinks(links, baseDomain) {
+        // Create a scoring system for links
+        const scoredLinks = links.map(link => {
+            let score = 0;
+            
+            // Prefer links that might contain galleries or media
+            if (link.includes('gallery')) score += 5;
+            if (link.includes('image')) score += 4;
+            if (link.includes('photo')) score += 4;
+            if (link.includes('media')) score += 3;
+            if (link.includes('album')) score += 3;
+            
+            // Avoid potential admin/utility areas
+            if (link.includes('admin')) score -= 5;
+            if (link.includes('setting')) score -= 5;
+            if (link.includes('config')) score -= 5;
+            if (link.includes('profile')) score -= 3;
+            if (link.includes('user')) score -= 2;
+            
+            // Prefer shorter URLs (often closer to root content)
+            score -= link.split('/').length;
+            
+            return { url: link, score };
+        });
+        
+        // Sort by score (highest first)
+        scoredLinks.sort((a, b) => b.score - a.score);
+        
+        // Return just the URLs in the new order
+        return scoredLinks.map(item => item.url);
+    }
+
+    // Function to process the next batch of links with dynamic updates
+    async function processNextBatch() {
+        if ((pendingLinks.length === 0 || !isProcessing) && !isCrawlerActive) {
+            if (isProcessing) {
+                // Finished processing all links
+                statusCounter.textContent = `Completed: Found ${foundImages.length} images from ${processedPageUrls.size} pages`;
+                isProcessing = false;
+                
+                // Show completion notification
+                const completionNotice = document.createElement('div');
+                completionNotice.style.cssText = `
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    background: rgba(46, 204, 113, 0.9);
+                    color: white;
+                    padding: 10px 20px;
+                    border-radius: 5px;
+                    z-index: 10003;
+                    animation: fadeOut 3s forwards 2s;
+                `;
+                completionNotice.textContent = `✓ Found ${foundImages.length} images`;
+                
+                const fadeOutStyle = document.createElement('style');
+                fadeOutStyle.textContent = `
+                    @keyframes fadeOut {
+                        from { opacity: 1; }
+                        to { opacity: 0; visibility: hidden; }
+                    }
+                `;
+                document.head.appendChild(fadeOutStyle);
+                document.body.appendChild(completionNotice);
+                
+                setTimeout(() => {
+                    if (document.body.contains(completionNotice)) {
+                        document.body.removeChild(completionNotice);
+                    }
+                }, 5000);
+            }
+            return;
+        }
+        
+        // For crawler mode, check if paused
+        if (isCrawlerActive && isCrawlerPaused) {
+            // Don't process more links while paused, but keep the function running
+            setTimeout(processNextBatch, 1000);
+            return;
+        }
+        
+        // Take the next batch of links to process (up to 3 at a time)
+        const batchSize = isCrawlerActive ? 1 : 3; // Process slower in crawler mode
+        const batch = pendingLinks.splice(0, batchSize);
+        
+        // Process each link in the batch
+        const promises = batch.map(async (link) => {
+            try {
+                processedPageUrls.add(link);
+                
+                // Update crawler stats if in crawler mode
+                if (isCrawlerActive) {
+                    crawlerStats.pagesScanned++;
+                    crawlerStats.domainsCrawled.add(getDomain(link));
+                    updateCrawlerProgress();
+                }
+                
+                // Fetch the page content
+                const response = await fetchUrl(link);
+                
+                // Extract images from the page
+                await extractImagesFromHtml(response.responseText, link);
+                
+                // Find more links to follow
+                const currentDomain = getDomain(window.location.href);
+                const linkDomain = getDomain(link);
+                const isOriginalDomain = currentDomain === linkDomain;
+                
+                // Determine crawl depth limit based on domain
+                let depthLimit = 20; // Default limit for same domain
+                
+                // If this is crawler mode, use larger depths and domain tracking
+                if (isCrawlerActive) {
+                    depthLimit = isOriginalDomain ? 100 : 40; // More depth for original domain
+                    
+                    // Only process limited pages for each external domain
+                    if (!isOriginalDomain) {
+                        // Count how many pages we've processed from this domain
+                        const domainPages = Array.from(processedPageUrls).filter(url => getDomain(url) === linkDomain).length;
+                        if (domainPages >= 20) {
+                            // Already processed enough from this external domain
+                            return;
+                        }
+                    }
+                }
+                
+                if (processedPageUrls.size < depthLimit) {
+                    const newLinks = extractNonImageLinksFromHtml(response.responseText, link);
+                    
+                    // Prioritize links in crawler mode
+                    let prioritizedLinks = newLinks;
+                    if (isCrawlerActive) {
+                        prioritizedLinks = prioritizeCrawlLinks(newLinks, currentDomain);
+                    }
+                    
+                    // Add new links to pending links, avoiding duplicates
+                    for (const newLink of prioritizedLinks) {
+                        if (!processedPageUrls.has(newLink) && !pendingLinks.includes(newLink)) {
+                            pendingLinks.push(newLink);
+                        }
+                    }
+                    
+                    // Update crawler stats
+                    if (isCrawlerActive) {
+                        crawlerStats.pendingLinksCount = pendingLinks.length;
+                    }
+                }
+            } catch (error) {
+                console.error(`Error processing link ${link}:`, error);
+            }
+        });
+        
+        // Wait for all links in this batch to be processed
+        await Promise.all(promises);
+        
+        // Update the counter
+        updateCounter();
+        
+        // Save crawler state periodically
+        if (isCrawlerActive && processedPageUrls.size % 10 === 0) {
+            saveCrawlerState();
+        }
+        
+        // Process the next batch after a delay
+        const delay = isCrawlerActive ? 1000 : 300; // Slower in crawler mode
+        setTimeout(() => {
+            processNextBatch();
+        }, delay);
+    }
+
+    // Main function to start collecting images from current page
+    async function collectImages() {
+        if (isProcessing) return;
+        isProcessing = true;
+        isCrawlerActive = false; // Make sure crawler mode is off
+        
+        // Clear previous results
+        imageGrid.innerHTML = '';
+        foundImages = [];
+        processedPageUrls = new Set();
+        processedImageUrls = new Set();
+        pendingLinks = [];
+        imageGroups = new Map();
+        
+        // Hide crawler controls
+        crawlerControls.style.display = 'none';
+        
+        statusCounter.textContent = 'Searching...';
+        
+        try {
+            // First, collect images from current page
+            const currentPageHtml = document.documentElement.outerHTML;
+            const currentPageImages = await extractImagesFromHtml(currentPageHtml, window.location.href);
+            
+            // Mark current page as processed
+            processedPageUrls.add(window.location.href);
+            
+            // Get links to follow (one level down)
+            const links = extractNonImageLinksFromHtml(currentPageHtml, window.location.href);
+            pendingLinks.push(...links);
+            
+            // Start processing batches
+            processNextBatch();
+        } catch (error) {
+            console.error('Error collecting images:', error);
+            statusCounter.textContent = 'Error: ' + error.message;
+            isProcessing = false;
+        }
+    }
+    
+    // Function to start or resume site-wide crawler
+    async function startCrawler() {
+        // Don't start if already running and not paused
+        if (isProcessing && isCrawlerActive && !isCrawlerPaused) return;
+        
+        // If paused, simply resume
+        if (isCrawlerPaused) {
+            isCrawlerPaused = false;
+            pauseResumeButton.textContent = '⏸️ Pause';
+            updateCrawlerProgress();
+            return;
+        }
+        
+        // Show gallery
+        galleryContainer.style.display = 'flex';
+        
+        // Check if we have stored data to resume
+        const hasStoredData = loadCrawlerState();
+        
+        // If no stored data, start fresh
+        if (!hasStoredData) {
+            // Clear the gallery
+            imageGrid.innerHTML = '';
+            foundImages = [];
+            processedPageUrls = new Set();
+            processedImageUrls = new Set();
+            pendingLinks = [];
+            imageGroups = new Map();
+            
+            // Initialize crawler state
+            crawlerStartTime = Date.now();
+            crawlerStats = {
+                pagesScanned: 0,
+                imagesFound: 0            // Initialize crawler state
+            crawlerStartTime = Date.now();
+            crawlerStats = {
+                pagesScanned: 0,
+                imagesFound: 0,
+                domainsCrawled: new Set([getDomain(window.location.href)]),
+                startTime: Date.now(),
+                lastActive: Date.now(),
+                pendingLinksCount: 0
+            };
+        }
+        
+        // Show crawler controls
+        crawlerControls.style.display = 'flex';
+        
+        // Mark as processing
+        isProcessing = true;
+        isCrawlerActive = true;
+        isCrawlerPaused = false;
+        
+        // Show crawler progress indicator
+        crawlerProgress.style.display = 'block';
+        updateCrawlerProgress();
+        
+        // Start or resume from current page if we don't have pending links
+        if (pendingLinks.length === 0) {
+            try {
+                // First, collect images from current page if not already processed
+                if (!processedPageUrls.has(window.location.href)) {
+                    const currentPageHtml = document.documentElement.outerHTML;
+                    await extractImagesFromHtml(currentPageHtml, window.location.href);
+                    
+                    // Mark current page as processed
+                    processedPageUrls.add(window.location.href);
+                    crawlerStats.pagesScanned++;
+                    
+                    // Get links to follow
+                    const links = extractNonImageLinksFromHtml(currentPageHtml, window.location.href);
+                    pendingLinks.push(...links);
+                    crawlerStats.pendingLinksCount = pendingLinks.length;
+                }
+                
+                // Save initial state
+                saveCrawlerState();
+                
+                // Start processing batches
+                processNextBatch();
+            } catch (error) {
+                console.error('Error starting crawler:', error);
+                statusCounter.textContent = 'Crawler Error: ' + error.message;
+                isCrawlerActive = false;
+                isProcessing = false;
+            }
+        } else {
+            // Resume existing crawl
+            processNextBatch();
+        }
+    }
+    
+    // Function to pause the crawler
+    function pauseCrawler() {
+        isCrawlerPaused = true;
+        pauseResumeButton.textContent = '▶️ Resume';
+        updateCrawlerProgress();
+        saveCrawlerState();
+    }
+    
+    // Function to clear crawler data
+    function clearCrawlerData() {
+        // Confirm before clearing
+        if (confirm('Are you sure you want to clear all crawler data? This will delete all found images and progress.')) {
+            // Stop crawler if running
+            isCrawlerActive = false;
+            isCrawlerPaused = false;
+            isProcessing = false;
+            
+            // Clear data
+            imageGrid.innerHTML = '';
+            foundImages = [];
+            processedPageUrls = new Set();
+            processedImageUrls = new Set();
+            pendingLinks = [];
+            imageGroups = new Map();
+            
+            // Reset crawler stats
+            crawlerStats = {
+                pagesScanned: 0,
+                imagesFound: 0,
+                domainsCrawled: new Set(),
+                startTime: null,
+                lastActive: null,
+                pendingLinksCount: 0
+            };
+            
+            // Clear stored data
+            clearStorage();
+            
+            // Update UI
+            statusCounter.textContent = 'Crawler data cleared';
+            crawlerProgress.style.display = 'none';
+            
+            // Hide crawler controls
+            crawlerControls.style.display = 'none';
+        }
+    }
+    
+    // Filter images based on minimum width
+    function filterImagesByMinWidth(minWidth) {
+        // Convert elements to array for filtering
+        const items = Array.from(imageGrid.children);
+        
+        items.forEach(item => {
+            const img = item.querySelector('img');
+            if (img && img.naturalWidth) {
+                if (img.naturalWidth < minWidth) {
+                    item.style.display = 'none';
+                } else {
+                    item.style.display = '';
+                }
+            }
+        });
+    }
+
+    // ===== EVENT LISTENERS AND INITIALIZATION =====
+    
+    // Add event listeners
+    floatingButton.addEventListener('click', () => {
+        galleryContainer.style.display = 'flex';
+        if (foundImages.length === 0) {
+            collectImages();
+        }
+    });
+
+    // Add crawler button event listener
+    crawlerButton.addEventListener('click', () => {
+        galleryContainer.style.display = 'flex';
+        startCrawler();
+    });
+
+    closeButton.addEventListener('click', () => {
+        galleryContainer.style.display = 'none';
+    });
+
+    downloadAllButton.addEventListener('click', () => {
+        foundImages.forEach((imageUrl, index) => {
+            setTimeout(() => {
+                let filename = imageUrl.split('/').pop().split('?')[0] || `image_${index}.jpg`;
+                GM_download({
+                    url: imageUrl,
+                    name: filename
+                });
+            }, index * 500); // Delay to prevent browser throttling
+        });
+    });
+
+    filterButton.addEventListener('click', () => {
+        const minWidth = parseInt(minWidthInput.value);
+        if (!isNaN(minWidth)) {
+            filterImagesByMinWidth(minWidth);
+        }
+    });
+
+    pauseResumeButton.addEventListener('click', () => {
+        if (isCrawlerPaused) {
+            startCrawler(); // Resume crawler
+        } else {
+            pauseCrawler();
+        }
+    });
+
+    clearCrawlerDataButton.addEventListener('click', clearCrawlerData);
+
+    // Optional: Add keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        // Press Esc to close the gallery
+        if (e.key === 'Escape' && galleryContainer.style.display === 'flex') {
+            galleryContainer.style.display = 'none';
+        }
+        
+        // Press Alt+I to open the gallery
+        if (e.altKey && e.key === 'i') {
+            galleryContainer.style.display = 'flex';
+            if (foundImages.length === 0) {
+                collectImages();
+            }
+        }
+        
+        // Press Alt+C to start the crawler
+        if (e.altKey && e.key === 'c') {
+            galleryContainer.style.display = 'flex';
+            startCrawler();
+        }
+        
+        // Press Alt+P to pause/resume the crawler
+        if (e.altKey && e.key === 'p' && isCrawlerActive) {
+            if (isCrawlerPaused) {
+                startCrawler(); // Resume
+            } else {
+                pauseCrawler();
+            }
+        }
+    });
+
+    // Initialize: Load any saved crawler state
+    loadCrawlerState();
+
+    // Show a welcome message when the script first loads
+    const welcomeMessage = document.createElement('div');
+    welcomeMessage.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(52, 152, 219, 0.9);
+        color: white;
+        padding: 15px;
+        border-radius: 5px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        font-size: 14px;
+        max-width: 300px;
+        z-index: 9998;
+        animation: fadeOut 3s forwards 5s;
+    `;
+    welcomeMessage.innerHTML = `
+        <strong>Enhanced Image Collector Ready</strong><br>
+        📷 - Collect images from this page<br>
+        🕸️ - Site-wide crawler with persistence<br>
+        <small>Alt+I / Alt+C keyboard shortcuts available</small>
+    `;
+    
+    const welcomeStyle = document.createElement('style');
+    welcomeStyle.textContent = `
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; visibility: hidden; }
+        }
+    `;
+    document.head.appendChild(welcomeStyle);
+    document.body.appendChild(welcomeMessage);
+    
+    setTimeout(() => {
+        if (document.body.contains(welcomeMessage)) {
+            document.body.removeChild(welcomeMessage);
+        }
+    }, 8000);
+})();
